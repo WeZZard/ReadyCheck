@@ -184,6 +184,12 @@ Build the project in the following sequence:
 8. **Benchmarking** – Add performance tests to confirm compliance with performance specifications.  
    - All tests must pass before finalizing.  
 
+See also:
+
+- [Quality Gate Enforcement and Integration Metrics](docs/engineering_efficiency/QUALITY_GATE_ENFORCEMENT_AND_INTEGRATION_METRICS.md)
+- [Top Down Validation Framework](docs/engineering_efficiency/TOP_DOWN_VALIDATION_FRAMEWORK.md)
+- [Integration Process Specification](docs/engineering_efficiency/INTEGRATION_PROCESS_SPECIFICATION.md)
+
 ### Cross-Platform Notes
 
 - macOS universal2: maturin build --release --target universal2-apple-darwin  
