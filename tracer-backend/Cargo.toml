@@ -1,0 +1,35 @@
+[package]
+name = "tracer-backend"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Native tracer backend for ADA system"
+
+[dependencies]
+libc.workspace = true
+once_cell.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+ctrlc = "3.4"
+bindgen = { workspace = true, optional = true }
+
+[build-dependencies]
+cmake.workspace = true
+cc.workspace = true
+bindgen.workspace = true
+
+[lib]
+name = "tracer_backend"
+crate-type = ["lib", "staticlib", "cdylib"]
+
+[[bin]]
+name = "tracer"
+path = "src/bin/tracer.rs"
+
+[features]
+default = []
+integration-tests = []
+
+[dev-dependencies]
+tempfile = "3.8"
