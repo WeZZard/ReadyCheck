@@ -424,3 +424,44 @@ Install a post-commit hook to generate an overall test coverage report to read a
 - **NO reducing requirements** - 100% is mandatory  
 - **NO "temporary" quality compromises** - Quality is permanent
 - **NO git commit --no-verify** - Hooks are mandatory
+
+### MANDATORY: Test naming conventions and output
+
+All tests must be self-descriptive by name alone. Use a behavioral, scenario-based naming scheme that encodes the unit under test, the key condition, and the expected outcome.
+
+- **Allowed patterns**
+  - Pattern A: `<unit>__<condition_or_action>__then_<expected>`
+  - Pattern B: `should_<expected>_when_<condition>_for_<unit>`
+
+- **unit**: a concise component or module identifier (e.g., `cache`, `parser`, `serializer`, `scheduler`, `controller`, `agent`)
+- **condition_or_action**: short phrase capturing the precondition or scenario (e.g., `empty_input`, `after_partial_read`, `concurrent_writers`, `invalid_header`)
+- **expected**: observable outcome using domain-neutral language (e.g., `return_default`, `preserve_order`, `reject_request`, `emit_event`)
+
+- **Examples: good vs. bad**
+  - cache eviction
+    - Good: `cache__evict_when_full__then_remove_lru_entry`
+    - Bad: `cache_eviction_basic`, `test_cache`
+  - parsing empty input
+    - Good: `parser__empty_input__then_return_error`
+    - Bad: `parser_basic`, `parse_empty`
+  - concurrent scheduling
+    - Good: `scheduler__concurrent_writers__then_preserve_order`
+    - Bad: `concurrency_test`, `writers_ok`
+  - thresholded event emission
+    - Good: `should_emit_event_when_threshold_exceeded_for_counter`
+    - Bad: `emit_event_simple`, `counter_event`
+  - ring buffer wrap
+    - Good: `ring_buffer__after_partial_read__then_wrap_preserves_order`
+    - Bad: `wrap_around`, `rb_wrap`
+
+- **Runtime output convention**
+  - At the start of each test, print a one-line title for log readability:
+    - Example: `printf("[PARSER] empty_input → returns error\n");`
+  - Prefer short tags for components in brackets: `[CACHE]`, `[PARSER]`, `[SER]`, `[SCHED]`, `[CTRL]`, `[AGENT]`.
+
+- **General rules**
+  - Avoid vague names like `basic`, `simple`, `works`.
+  - Do not rely on prior execution context; each name must stand on its own.
+  - One behavior per test; split cases rather than overloading a single test.
+  - Keep names lowercase with underscores for readability; separate sections with double underscores `__`.
+
