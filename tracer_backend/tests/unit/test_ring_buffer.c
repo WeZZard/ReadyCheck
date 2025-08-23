@@ -193,10 +193,10 @@ void test_concurrent_access() {
     printf("Testing concurrent producer-consumer...\n");
     
     // Use shared memory for true concurrent test
-    SharedMemory* shm = shared_memory_create("test_concurrent", 64 * 1024);
+    SharedMemoryRef shm = shared_memory_create_unique("test_concurrent", 0, shared_memory_get_session_id(), 64 * 1024, NULL, 0);
     assert(shm != NULL);
     
-    RingBuffer* rb = ring_buffer_create(shm->address, shm->size, sizeof(TestEvent));
+    RingBuffer* rb = ring_buffer_create(shared_memory_get_address(shm), shared_memory_get_size(shm), sizeof(TestEvent));
     assert(rb != NULL);
     
     bool running = true;

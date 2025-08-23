@@ -1,14 +1,14 @@
 #include "frida_controller.h"
 #include "shared_memory.h"
 #include "ring_buffer.h"
+#include "tracer_types.h"
 #include <frida-core.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 #include <unistd.h>
-#include <pthread.h>
 #include <spawn.h>
-#include <signal.h>
+#include <assert.h>
 #include <sys/wait.h>
 
 #ifdef __APPLE__
@@ -40,9 +40,9 @@ struct FridaController {
     SpawnMethod spawn_method;
     
     // Shared memory
-    SharedMemory* shm_control;
-    SharedMemory* shm_index;
-    SharedMemory* shm_detail;
+    SharedMemoryRef shm_control;
+    SharedMemoryRef shm_index;
+    SharedMemoryRef shm_detail;
     ControlBlock* control_block;
     
     // Ring buffers
@@ -50,7 +50,7 @@ struct FridaController {
     RingBuffer* detail_ring;
     
     // Drain thread
-    pthread_t drain_thread;
+    GThread* drain_thread;
     bool drain_running;
     
     // Output
@@ -62,7 +62,23 @@ struct FridaController {
     
     // Event loop
     GMainLoop* main_loop;
+
+    GMainContext* main_context;
 };
+
+// Shared memory naming: typed string literal constants for roles (declared in shared_memory.h)
+
+// Generate or retrieve a per-process session id (random), used for uniqueness when enabled
+// Use shared_memory.c's session id indirectly via name builder.
+
+// Build shared memory name using shared_memory API (unique session-based)
+static void
+build_shm_name(char *dst, size_t dst_len, const char *role, pid_t pid_hint)
+{
+    uint32_t sid = shared_memory_get_session_id();
+    pid_t pid_part = (pid_hint > 0) ? pid_hint : getpid();
+    snprintf(dst, dst_len, "%s_%s_%d_%08x", ADA_SHM_PREFIX, role, (int) pid_part, (unsigned int) sid);
+}
 
 // Forward declarations
 static void* drain_thread_func(void* arg);
@@ -71,32 +87,53 @@ static void on_detached(FridaSession* session, FridaSessionDetachReason reason,
 static void on_message(FridaScript* script, const gchar* message, 
                        GBytes* data, gpointer user_data);
 
+__attribute__((constructor))
+void frida_init_per_process (void) {
+    frida_init();
+}
+
+__attribute__((destructor))
+void frida_deinit_per_process (void) {
+    frida_deinit();
+}
+
 FridaController* frida_controller_create(const char* output_dir) {
     FridaController* controller = calloc(1, sizeof(FridaController));
-    if (!controller) return NULL;
+    if (!controller) {
+        g_debug("Failed to allocate memory for FridaController\n");
+        return NULL;
+    }
     
     // Initialize spawn method
     controller->spawn_method = SPAWN_METHOD_NONE;
     
-    // Initialize Frida
-    frida_init();
-    
     // Copy output directory
     strncpy(controller->output_dir, output_dir, sizeof(controller->output_dir) - 1);
     
+    controller->main_context = g_main_context_new();
+    g_main_context_push_thread_default(controller->main_context );
+
+    controller->main_loop = g_main_loop_new (controller->main_context , TRUE);
+    
     // Create device manager
     controller->manager = frida_device_manager_new();
-    
+
     // Get local device
     GError* error = NULL;
     FridaDeviceList* devices = frida_device_manager_enumerate_devices_sync(
         controller->manager, NULL, &error);
     
     if (error) {
+        g_printerr("%s\n", error->message);
         g_error_free(error);
         frida_device_manager_close_sync(controller->manager, NULL, NULL);
         frida_unref(controller->manager);
+        g_main_loop_quit(controller->main_loop);
+        g_main_loop_unref(controller->main_loop);
+        g_main_context_pop_thread_default(controller->main_context);
+        g_main_context_unref(controller->main_context);
         free(controller);
+        g_debug("Failed to enumerate devices\n");
         return NULL;
     }
     
@@ -115,22 +152,41 @@ FridaController* frida_controller_create(const char* output_dir) {
     if (!controller->device) {
         frida_device_manager_close_sync(controller->manager, NULL, NULL);
         frida_unref(controller->manager);
+        g_main_loop_quit(controller->main_loop);
+        g_main_loop_unref(controller->main_loop);
+        g_main_context_pop_thread_default(controller->main_context);
+        g_main_context_unref(controller->main_context);
         free(controller);
+        g_debug("Failed to create shared memory segments\n");
         return NULL;
     }
     
-    // Create shared memory segments
-    controller->shm_control = shared_memory_create("ada_control", CONTROL_BLOCK_SIZE);
-    controller->shm_index = shared_memory_create("ada_index", INDEX_LANE_SIZE);
-    controller->shm_detail = shared_memory_create("ada_detail", DETAIL_LANE_SIZE);
+    // Create shared memory segments (optionally unique names controlled by ADA_SHM_DISABLE_UNIQUE)
+    char name_control[256];
+    char name_index[256];
+    char name_detail[256];
+    build_shm_name(name_control, sizeof(name_control), ADA_ROLE_CONTROL, 0 /* pid unknown yet */);
+    build_shm_name(name_index, sizeof(name_index), ADA_ROLE_INDEX, 0);
+    build_shm_name(name_detail, sizeof(name_detail), ADA_ROLE_DETAIL, 0);
+
+    controller->shm_control = shared_memory_create_unique(ADA_ROLE_CONTROL,
+                                                         0, shared_memory_get_session_id(),
+                                                         CONTROL_BLOCK_SIZE, NULL, 0);
+    controller->shm_index = shared_memory_create_unique(ADA_ROLE_INDEX,
+                                                       0, shared_memory_get_session_id(),
+                                                       INDEX_LANE_SIZE, NULL, 0);
+    controller->shm_detail = shared_memory_create_unique(ADA_ROLE_DETAIL,
+                                                        0, shared_memory_get_session_id(),
+                                                        DETAIL_LANE_SIZE, NULL, 0);
     
     if (!controller->shm_control || !controller->shm_index || !controller->shm_detail) {
         frida_controller_destroy(controller);
+        g_debug("Failed to initialize control block\n");
         return NULL;
     }
     
     // Initialize control block
-    controller->control_block = (ControlBlock*)controller->shm_control->address;
+    controller->control_block = (ControlBlock*)shared_memory_get_address(controller->shm_control);
     controller->control_block->process_state = PROCESS_STATE_INITIALIZED;
     controller->control_block->flight_state = FLIGHT_RECORDER_IDLE;
     controller->control_block->index_lane_enabled = 1;
@@ -139,19 +195,16 @@ FridaController* frida_controller_create(const char* output_dir) {
     controller->control_block->post_roll_ms = 1000;
     
     // Create ring buffers
-    controller->index_ring = ring_buffer_create(controller->shm_index->address,
+    controller->index_ring = ring_buffer_create(shared_memory_get_address(controller->shm_index),
                                                 INDEX_LANE_SIZE,
                                                 sizeof(IndexEvent));
-    controller->detail_ring = ring_buffer_create(controller->shm_detail->address,
+    controller->detail_ring = ring_buffer_create(shared_memory_get_address(controller->shm_detail),
                                                  DETAIL_LANE_SIZE,
                                                  sizeof(DetailEvent));
     
-    // Create event loop
-    controller->main_loop = g_main_loop_new(NULL, FALSE);
-    
     // Start drain thread
     controller->drain_running = true;
-    pthread_create(&controller->drain_thread, NULL, drain_thread_func, controller);
+    controller->drain_thread = g_thread_new("drain_thread", drain_thread_func, controller);
     
     controller->state = PROCESS_STATE_INITIALIZED;
     
@@ -164,7 +217,7 @@ void frida_controller_destroy(FridaController* controller) {
     // Stop drain thread
     controller->drain_running = false;
     if (controller->drain_thread) {
-        pthread_join(controller->drain_thread, NULL);
+        g_thread_join(controller->drain_thread);
     }
     
     // Cleanup Frida objects
@@ -203,12 +256,13 @@ void frida_controller_destroy(FridaController* controller) {
     
     // Cleanup event loop
     if (controller->main_loop) {
+        g_main_loop_quit(controller->main_loop);
         g_main_loop_unref(controller->main_loop);
+        g_main_context_pop_thread_default(controller->main_context);
+        g_main_context_unref(controller->main_context);
     }
     
     free(controller);
-    
-    frida_deinit();
 }
 
 int frida_controller_spawn_suspended(FridaController* controller,
@@ -219,7 +273,7 @@ int frida_controller_spawn_suspended(FridaController* controller,
     
     controller->state = PROCESS_STATE_SPAWNING;
     controller->control_block->process_state = PROCESS_STATE_SPAWNING;
-
+    
     // Use Frida for system binaries
     GError *error = NULL;
     FridaSpawnOptions *options = frida_spawn_options_new();
@@ -232,11 +286,36 @@ int frida_controller_spawn_suspended(FridaController* controller,
     }
     frida_spawn_options_set_argv(options, (gchar **)argv, argv_len);
 
+    // Pass session id and host pid to the spawned process via environment for agent to discover
+    uint32_t sid = shared_memory_get_session_id();
+    char sid_hex[16];
+    snprintf(sid_hex, sizeof(sid_hex), "%08x", (unsigned int) sid);
+    pid_t host_pid = getpid();
+    char host_pid_str[32];
+    snprintf(host_pid_str, sizeof(host_pid_str), "%d", (int) host_pid);
+    size_t envc = 0;
+    for (char **ep = environ; ep && *ep; ep++) envc++;
+    char **envp = (char **) calloc(envc + 3, sizeof(char *));
+    if (envp) {
+        for (size_t i = 0; i < envc; i++) envp[i] = strdup(environ[i]);
+        char varbuf1[64];
+        snprintf(varbuf1, sizeof(varbuf1), "ADA_SHM_SESSION_ID=%s", sid_hex);
+        envp[envc] = strdup(varbuf1);
+        char varbuf2[64];
+        snprintf(varbuf2, sizeof(varbuf2), "ADA_SHM_HOST_PID=%s", host_pid_str);
+        envp[envc + 1] = strdup(varbuf2);
+        frida_spawn_options_set_env(options, (gchar **) envp, (gint) (envc + 2));
+    }
+
     // Frida’s spawn-suspended flow is designed to allow attach + hook 
     // before first instruction, then frida_device_resume_sync
     guint pid = frida_device_spawn_sync(controller->device, path, options, NULL,
                                         &error);
     g_object_unref(options);
+    if (envp) {
+        for (size_t i = 0; i < envc + 2; i++) free(envp[i]);
+        free(envp);
+    }
 
     if (error) {
       g_printerr("Failed to spawn: %s\n", error->message);
@@ -420,25 +499,29 @@ int frida_controller_resume(FridaController* controller) {
         controller->state != PROCESS_STATE_ATTACHED) {
         return -1;
     }
+
+    assert(controller->spawn_method == SPAWN_METHOD_FRIDA);
+    assert(controller->device);
+    assert(controller->pid > 0);
     
-    // Resume based on spawn method to avoid double resume
-    if (controller->spawn_method == SPAWN_METHOD_FRIDA) {
-        // Resume via Frida if using Frida spawn
-        if (controller->device && controller->pid > 0) {
-            GError* error = NULL;
-            frida_device_resume_sync(controller->device, controller->pid, NULL, &error);
-            if (error) {
-                g_error_free(error);
-                return -1;
-            }
+    // Resume via Frida if using Frida spawn
+    if (controller->device && controller->pid > 0) {
+        GError* error = NULL;
+        frida_device_resume_sync(controller->device, controller->pid, NULL, &error);
+        if (error) {
+            g_error_free(error);
+            controller->state = PROCESS_STATE_FAILED;
+            controller->control_block->process_state = PROCESS_STATE_FAILED;
+            return -1;
+        } else {
+            controller->state = PROCESS_STATE_RUNNING;
+            controller->control_block->process_state = PROCESS_STATE_RUNNING;
         }
     } else {
-        // For attached processes (SPAWN_METHOD_NONE), no resume needed
-        // as they're already running
+        controller->state = PROCESS_STATE_FAILED;
+        controller->control_block->process_state = PROCESS_STATE_FAILED;
+        return -1;
     }
-    
-    controller->state = PROCESS_STATE_RUNNING;
-    controller->control_block->process_state = PROCESS_STATE_RUNNING;
     
     return 0;
 }

@@ -67,20 +67,22 @@ void test_shared_memory_communication() {
     FridaController* controller = frida_controller_create("./test_output");
     assert(controller != NULL);
     
-    // Open the shared memory from another process perspective
-    SharedMemory* shm_control = shared_memory_open("ada_control", 4096);
-    SharedMemory* shm_index = shared_memory_open("ada_index", 32 * 1024 * 1024);
+    // Open the shared memory from another process perspective using unique naming
+    uint32_t sid = shared_memory_get_session_id();
+    pid_t pid = shared_memory_get_pid();
+    SharedMemoryRef shm_control = shared_memory_open_unique(ADA_ROLE_CONTROL, pid, sid, 4096);
+    SharedMemoryRef shm_index = shared_memory_open_unique(ADA_ROLE_INDEX, pid, sid, 32 * 1024 * 1024);
     
     assert(shm_control != NULL);
     assert(shm_index != NULL);
     
     // Verify control block is accessible
-    ControlBlock* control = (ControlBlock*)shm_control->address;
+    ControlBlock* control = (ControlBlock*)shared_memory_get_address(shm_control);
     assert(control->process_state == PROCESS_STATE_INITIALIZED);
     assert(control->index_lane_enabled == 1);
     
     // Create ring buffer view
-    RingBuffer* rb = ring_buffer_create(shm_index->address, 32 * 1024 * 1024, sizeof(IndexEvent));
+    RingBuffer* rb = ring_buffer_create(shared_memory_get_address(shm_index), 32 * 1024 * 1024, sizeof(IndexEvent));
     assert(rb != NULL);
     assert(ring_buffer_is_empty(rb));
     

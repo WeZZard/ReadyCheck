@@ -10,11 +10,11 @@ void test_attach_preserves_data() {
     printf("Testing ring_buffer_attach preserves existing data...\n");
     
     // Create shared memory
-    SharedMemory* shm = shared_memory_create("test_attach", 1024 * 1024);
+    SharedMemoryRef shm = shared_memory_create_unique(ADA_ROLE_INDEX, 0, shared_memory_get_session_id(), 1024 * 1024, NULL, 0);
     assert(shm != NULL);
     
     // Create and initialize a ring buffer
-    RingBuffer* rb1 = ring_buffer_create(shm->address, shm->size, sizeof(int));
+    RingBuffer* rb1 = ring_buffer_create(shared_memory_get_address(shm), shared_memory_get_size(shm), sizeof(int));
     assert(rb1 != NULL);
     
     // Write some data
@@ -30,7 +30,7 @@ void test_attach_preserves_data() {
     printf("  After writing 5 items - write_pos: %u, read_pos: %u\n", write_pos, read_pos);
     
     // Now attach to the same memory (simulating agent attach)
-    RingBuffer* rb2 = ring_buffer_attach(shm->address, shm->size, sizeof(int));
+    RingBuffer* rb2 = ring_buffer_attach(shared_memory_get_address(shm), shared_memory_get_size(shm), sizeof(int));
     assert(rb2 != NULL);
     
     // Check that positions are preserved
@@ -62,14 +62,14 @@ void test_attach_fails_on_invalid_magic() {
     printf("Testing ring_buffer_attach fails on invalid magic...\n");
     
     // Create shared memory with garbage data
-    SharedMemory* shm = shared_memory_create("test_bad_magic", 1024);
+    SharedMemoryRef shm = shared_memory_create_unique("test_bad_magic", 0, shared_memory_get_session_id(), 1024, NULL, 0);
     assert(shm != NULL);
     
     // Fill with garbage
-    memset(shm->address, 0xFF, shm->size);
+    memset(shared_memory_get_address(shm), 0xFF, shared_memory_get_size(shm));
     
     // Try to attach - should fail
-    RingBuffer* rb = ring_buffer_attach(shm->address, shm->size, sizeof(int));
+    RingBuffer* rb = ring_buffer_attach(shared_memory_get_address(shm), shared_memory_get_size(shm), sizeof(int));
     assert(rb == NULL);
     
     shared_memory_destroy(shm);
@@ -81,11 +81,11 @@ void test_concurrent_attach_and_write() {
     printf("Testing concurrent attach and write...\n");
     
     // Create shared memory
-    SharedMemory* shm = shared_memory_create("test_concurrent", 1024 * 1024);
+    SharedMemoryRef shm = shared_memory_create_unique(ADA_ROLE_INDEX, 0, shared_memory_get_session_id(), 1024 * 1024, NULL, 0);
     assert(shm != NULL);
     
     // Controller creates ring buffer
-    RingBuffer* controller_rb = ring_buffer_create(shm->address, shm->size, sizeof(int));
+    RingBuffer* controller_rb = ring_buffer_create(shared_memory_get_address(shm), shared_memory_get_size(shm), sizeof(int));
     assert(controller_rb != NULL);
     
     // Controller writes some initial data
@@ -94,7 +94,7 @@ void test_concurrent_attach_and_write() {
     }
     
     // Agent attaches to existing ring buffer
-    RingBuffer* agent_rb = ring_buffer_attach(shm->address, shm->size, sizeof(int));
+    RingBuffer* agent_rb = ring_buffer_attach(shared_memory_get_address(shm), shared_memory_get_size(shm), sizeof(int));
     assert(agent_rb != NULL);
     
     // Both can write concurrently

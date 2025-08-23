@@ -33,3 +33,4 @@ integration-tests = []
 
 [dev-dependencies]
 tempfile = "3.8"
+serial_test = "3"

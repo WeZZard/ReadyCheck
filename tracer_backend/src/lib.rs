@@ -212,9 +212,10 @@ mod tests {
     use super::*;
     use std::process::Command;
     use std::env;
+    use serial_test::serial;
+    use std::process::Stdio;
     
     #[test]
-    #[ignore] // This test can conflict with other tests due to shared memory names
     fn test_controller_creation() {
         // Note: This test creates shared memory segments with fixed names
         // that can conflict when tests run in parallel
@@ -252,10 +253,12 @@ mod tests {
         println!("Running C test: {}", test_path);
         
         let output = Command::new(test_path)
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
             .output()
             .map_err(|e| format!("Failed to execute {}: {}", test_name, e))?;
         
-        // Print test output
+        // Always echo stdout/stderr for visibility when running under cargo test
         print!("{}", String::from_utf8_lossy(&output.stdout));
         if !output.stderr.is_empty() {
             eprint!("{}", String::from_utf8_lossy(&output.stderr));
@@ -279,19 +282,20 @@ mod tests {
     }
     
     #[test]
+    #[serial]
     fn test_ring_buffer_attach() {
         run_c_test("test_ring_buffer_attach").expect("Ring buffer attach test failed");
     }
     
     #[test]
-    #[ignore] // Requires elevated permissions - run with: cargo test -- --ignored
+    #[serial]
     fn test_spawn_method() {
         run_c_test("test_spawn_method").expect("Spawn method test failed");
     }
     
     #[test]
-    #[ignore] // This test spawns processes and can hang - run with: cargo test -- --ignored
-    fn test_p0_fixes_integration() {
-        run_c_test("test_p0_fixes").expect("P0 fixes integration test failed");
+    #[serial]
+    fn test_controller_full_lifecycle() {
+        run_c_test("test_controller_full_lifecycle").expect("Controller full lifecycle test failed");
     }
 }
