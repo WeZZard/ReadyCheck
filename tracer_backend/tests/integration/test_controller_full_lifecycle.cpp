@@ -1,26 +1,44 @@
-// Integration test for controller full lifecycle with all critical components
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <assert.h>
+// Integration tests for Controller Full Lifecycle using Google Test
+// Direct translation from test_controller_full_lifecycle.c
+#include <gtest/gtest.h>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <unistd.h>
 #include <pthread.h>
 #include <signal.h>
 #include <sys/wait.h>
 #include <dlfcn.h>
-#include "frida_controller.h"
-#include "shared_memory.h"
-#include "ring_buffer.h"
-#include "tracer_types.h"
+
+extern "C" {
+    #include "frida_controller.h"
+    #include "shared_memory.h"
+    #include "ring_buffer.h"
+    #include "tracer_types.h"
+    #include "ada_paths.h"
+}
+
+// Test fixture for controller full lifecycle tests
+class ControllerFullLifecycleTest : public ::testing::Test {
+protected:
+    void SetUp() override {
+        printf("[CTRL] Setting up test\n");
+    }
+    
+    void TearDown() override {
+        // Cleanup is handled in each test
+    }
+};
 
 // Test: controller__spawn_attach_resume__then_full_lifecycle_succeeds
-void controller__spawn_attach_resume__then_full_lifecycle_succeeds() {
+// Direct translation from the C test
+TEST_F(ControllerFullLifecycleTest, controller__spawn_attach_resume__then_full_lifecycle_succeeds) {
     printf("[CTRL] spawn_attach_resume → full lifecycle succeeds\n");
     
     // 1. Create controller with shared memory
     printf("  1. Creating controller and shared memory...\n");
     FridaController* controller = frida_controller_create("/tmp/ada_test");
-    assert(controller != NULL);
+    ASSERT_NE(controller, nullptr);
     
     // Verify shared memory is created (use unique naming contract)
     uint32_t sid = shared_memory_get_session_id();
@@ -29,23 +47,36 @@ void controller__spawn_attach_resume__then_full_lifecycle_succeeds() {
     SharedMemoryRef shm_index = shared_memory_open_unique(ADA_ROLE_INDEX, local_pid, sid, 32 * 1024 * 1024);
     SharedMemoryRef shm_detail = shared_memory_open_unique(ADA_ROLE_DETAIL, local_pid, sid, 32 * 1024 * 1024);
     
-    assert(shm_control != NULL);
-    assert(shm_index != NULL);
-    assert(shm_detail != NULL);
+    ASSERT_NE(shm_control, nullptr);
+    ASSERT_NE(shm_index, nullptr);
+    ASSERT_NE(shm_detail, nullptr);
     
     // 2. Test spawn method tracking
     printf("  2. Testing spawn with method tracking...\n");
-    char* argv[] = {"test_cli", "--brief", NULL};
+    char* argv[] = {(char*)"test_cli", (char*)"--brief", nullptr};
     uint32_t pid;
     
+    const char * path = ADA_WORKSPACE_ROOT "/target/" ADA_BUILD_PROFILE "/tracer_backend/test/test_cli";
     int result = frida_controller_spawn_suspended(controller,
-        "/Users/wezzard/Projects/ADA/target/release/tracer_backend/test/test_cli",
+        path,
         argv, &pid);
-    
+
     if (result != 0) {
-        printf("  ⚠️  Spawn failed - may need elevated permissions\n");
-        printf("  Run with: sudo %s\n", argv[0]);
-        goto cleanup;
+        FILE * f = fopen(path, "r");
+        if (f) {
+            printf("  ⚠️  Spawn failed - may need elevated permissions\n");
+            printf("  Run with: sudo %s\n", argv[0]);
+            fclose(f);
+        } else {
+            printf("  ⚠️  Spawn failed - open does not exist\n");
+        }
+        // Cleanup and skip
+        shared_memory_destroy(shm_control);
+        shared_memory_destroy(shm_index);
+        shared_memory_destroy(shm_detail);
+        frida_controller_destroy(controller);
+        GTEST_SKIP();
+        return;
     }
     
     printf("  Spawned PID: %u\n", pid);
@@ -53,7 +84,7 @@ void controller__spawn_attach_resume__then_full_lifecycle_succeeds() {
     // 3. Attach to process
     printf("  3. Attaching to process...\n");
     result = frida_controller_attach(controller, pid);
-    assert(result == 0);
+    ASSERT_EQ(result, 0);
     
     // 4. Test ring buffer attach (simulating agent attach)
     printf("  4. Testing ring buffer attach preservation...\n");
@@ -62,7 +93,7 @@ void controller__spawn_attach_resume__then_full_lifecycle_succeeds() {
     RingBuffer* controller_rb = ring_buffer_create(shared_memory_get_address(shm_index), 
                                                    shared_memory_get_size(shm_index), 
                                                    sizeof(IndexEvent));
-    assert(controller_rb != NULL);
+    ASSERT_NE(controller_rb, nullptr);
     
     IndexEvent test_event = {
         .timestamp = 1234567890,
@@ -73,20 +104,20 @@ void controller__spawn_attach_resume__then_full_lifecycle_succeeds() {
     };
     
     bool write_result = ring_buffer_write(controller_rb, &test_event);
-    assert(write_result == true);
+    ASSERT_TRUE(write_result);
     
     // Simulate agent attaching to the same buffer
     RingBuffer* agent_rb = ring_buffer_attach(shared_memory_get_address(shm_index),
                                               shared_memory_get_size(shm_index),
                                               sizeof(IndexEvent));
-    assert(agent_rb != NULL);
+    ASSERT_NE(agent_rb, nullptr);
     
     // Verify agent sees the data
     IndexEvent read_event;
     bool read_result = ring_buffer_read(agent_rb, &read_event);
-    assert(read_result == true);
-    assert(read_event.function_id == 42);
-    assert(read_event.timestamp == 1234567890);
+    ASSERT_TRUE(read_result);
+    ASSERT_EQ(read_event.function_id, 42);
+    ASSERT_EQ(read_event.timestamp, 1234567890);
     
     printf("  Ring buffer data preserved: function_id=%u, timestamp=%llu\n", 
            (unsigned int) read_event.function_id, (unsigned long long) read_event.timestamp);
@@ -94,12 +125,12 @@ void controller__spawn_attach_resume__then_full_lifecycle_succeeds() {
     // 5. Install hooks (will use minimal script since native agent loading is placeholder)
     printf("  5. Installing hooks...\n");
     result = frida_controller_install_hooks(controller);
-    assert(result == 0);
+    ASSERT_EQ(result, 0);
     
     // 6. Test resume (should only use appropriate method, no double resume)
     printf("  6. Testing resume (no double resume)...\n");
     result = frida_controller_resume(controller);
-    assert(result == 0);
+    ASSERT_EQ(result, 0);
     
     // Let it run briefly
     usleep(100000); // 100ms
@@ -107,7 +138,7 @@ void controller__spawn_attach_resume__then_full_lifecycle_succeeds() {
     // 7. Check final state
     ProcessState state = frida_controller_get_state(controller);
     // TODO: We don't inject native agent at the moment, so we can't assert this
-    // assert(state == PROCESS_STATE_RUNNING);
+    // ASSERT_EQ(state, PROCESS_STATE_RUNNING);
     printf("  Process state: RUNNING\n");
     
     // 8. Get stats
@@ -116,12 +147,12 @@ void controller__spawn_attach_resume__then_full_lifecycle_succeeds() {
     
     // Clean up process
     kill((pid_t) pid, SIGTERM);
-    waitpid((pid_t) pid, NULL, 0);
+    waitpid((pid_t) pid, nullptr, 0);
     
     ring_buffer_destroy(controller_rb);
     ring_buffer_destroy(agent_rb);
     
-cleanup:
+    // Cleanup
     shared_memory_destroy(shm_control);
     shared_memory_destroy(shm_index);
     shared_memory_destroy(shm_detail);
@@ -130,40 +161,27 @@ cleanup:
     printf("  ✓ Integrated fixes test completed\n");
 }
 
-void agent__dlopen_symbols__then_exports_resolve() {
+// Test: agent__dlopen_symbols__then_exports_resolve
+// Direct translation from the C test (updated with correct export name)
+TEST_F(ControllerFullLifecycleTest, agent__dlopen_symbols__then_exports_resolve) {
     printf("[AGENT] dlopen_symbols → exports resolve\n");
     
-    // Check that the agent library exports frida_agent_main
-    void* handle = dlopen("/Users/wezzard/Projects/ADA/target/release/tracer_backend/lib/libfrida_agent.dylib", RTLD_LAZY);
+    // Check that the agent library exports agent_init
+    void* handle = dlopen(ADA_WORKSPACE_ROOT "/target/" ADA_BUILD_PROFILE "/tracer_backend/lib/libfrida_agent.dylib", RTLD_LAZY);
     
     if (handle) {
-        void* sym = dlsym(handle, "frida_agent_main");
+        void* sym = dlsym(handle, "agent_init");
         if (sym) {
-            printf("  ✓ Found frida_agent_main export\n");
+            printf("  ✓ Found agent_init export\n");
+            SUCCEED();
         } else {
-            printf("  ✗ frida_agent_main not exported\n");
+            printf("  ✗ agent_init not exported\n");
+            ADD_FAILURE() << "agent_init not exported";
         }
         dlclose(handle);
     } else {
         printf("  ⚠️  Could not load agent library (may not be built yet)\n");
+        printf("  $PWD: %s\n", getenv("PWD"));
+        GTEST_SKIP();
     }
-}
-
-int main() {
-    printf("=== Controller Full Lifecycle Integration Test ===\n\n");
-    
-    printf("This test verifies critical integration points:\n");
-    printf("  1. Ring buffer attach preserves existing data\n");
-    printf("  2. Spawn method tracking prevents double resume\n");
-    printf("  3. Native agent exports are properly configured\n");
-    printf("  4. Full controller lifecycle executes correctly\n\n");
-    
-    controller__spawn_attach_resume__then_full_lifecycle_succeeds();
-    agent__dlopen_symbols__then_exports_resolve();
-    
-    printf("\n✅ Controller full lifecycle test completed!\n");
-    printf("\nNote: Some tests may require elevated permissions.\n");
-    printf("Run with: sudo <test_binary>\n");
-    
-    return 0;
 }

@@ -234,9 +234,10 @@ void agent_init(const gchar* data, gint data_size);
 static uint32_t g_host_pid = UINT32_MAX;
 static uint32_t g_session_id = UINT32_MAX;
 
+static AgentContext* g_ctx = NULL;
+
 AgentContext* get_shared_agent_context() {
     static gsize ctx_initialized = 0;
-    static AgentContext* ctx = NULL;
     if (g_once_init_enter(&ctx_initialized)) {
 
         uint32_t session_id = g_session_id;
@@ -275,22 +276,22 @@ AgentContext* get_shared_agent_context() {
         }
 
         if (is_ready) {
-            ctx = calloc(1, sizeof(AgentContext));
-            if (ctx) {
-                ctx->host_pid = host_pid;
-                ctx->session_id = session_id;
+            g_ctx = calloc(1, sizeof(AgentContext));
+            if (g_ctx) {
+                g_ctx->host_pid = host_pid;
+                g_ctx->session_id = session_id;
                 g_debug("Agent context initialized with host pid: %u, session id: %u\n", host_pid, session_id);
             } else {
                 g_debug("Failed to allocate agent context\n");
             }
         } else {
             g_debug("Failed to initialize agent context: session id or host pid not provided nor can be resolved from environment\n");
-            ctx = NULL;
+            g_ctx = NULL;
         }
 
-        g_once_init_leave(&ctx_initialized, (gsize) ctx);
+        g_once_init_leave(&ctx_initialized, (gsize) g_ctx);
     }
-    return ctx;
+    return g_ctx;
 }
 
 // Entry point called when agent is injected (Frida's standard)
@@ -307,7 +308,7 @@ void agent_init(const gchar* data, gint data_size) {
     g_host_pid = arg_host;
     g_session_id = arg_sid;
     
-    g_print("[Agent] Parsed host_pid=%u, session_id=%08x\n", g_host_pid, g_session_id);
+    g_print("[Agent] Parsed host_pid=%u, session_id=%u\n", g_host_pid, g_session_id);
 
     AgentContext* ctx = get_shared_agent_context();
 
@@ -315,8 +316,6 @@ void agent_init(const gchar* data, gint data_size) {
         g_print("[Agent] Failed to allocate agent context\n");
         return;
     }
-    
-    g_print("[Agent] Got context, host_pid=%u, session_id=%08x\n", ctx->host_pid, ctx->session_id);
     
     // Create TLS key
     pthread_key_create(&g_tls_key, free);
@@ -361,15 +360,21 @@ void agent_init(const gchar* data, gint data_size) {
     // Hook some specific functions for POC
     // Note: Full enumeration would require different API approach
     const char* functions_to_hook[] = {
-        "open", "close", "read", "write",
-        "malloc", "free", "memcpy", "memset",
+        // test_cli functions
+        "fibonacci", "process_file", "calculate_pi", "recursive_function",
+        // test_runloop functions
+        "simulate_network", "monitor_file", "dispatch_work", "signal_handler", "timer_callback",
         NULL
     };
     
     guint function_id = 0;
     for (const char** fname = functions_to_hook; *fname != NULL; fname++) {
-        GumAddress func_addr = gum_module_find_export_by_name(NULL, *fname);
+        g_print("[Agent] Finding symbol: %s\n", *fname);
+        
+        GumModule* main_module = gum_process_get_main_module();
+        GumAddress func_addr = gum_module_find_symbol_by_name(main_module, *fname);
         if (func_addr != 0) {
+            g_print("[Agent] Found symbol: %s at 0x%llx\n", *fname, func_addr);
             HookData* hook = g_new0(HookData, 1);
             hook->ctx = ctx;
             hook->function_id = function_id++;
@@ -397,29 +402,28 @@ void agent_init(const gchar* data, gint data_size) {
 }
 
 // Called when agent is being unloaded
+__attribute__((destructor))
 G_GNUC_INTERNAL void agent_deinit(void) {
-    AgentContext* ctx = get_shared_agent_context();
-
-    if (!ctx) return;
+    if (!g_ctx) return;
     
     // Detach all hooks
-    if (ctx->interceptor) {
+    if (g_ctx->interceptor) {
         // Note: In production, we'd need to track listeners and detach individually
         // For POC, just unref the interceptor
-        g_object_unref(ctx->interceptor);
+        g_object_unref(g_ctx->interceptor);
     }
     
     // Cleanup ring buffers
-    ring_buffer_destroy(ctx->index_ring);
-    ring_buffer_destroy(ctx->detail_ring);
+    ring_buffer_destroy(g_ctx->index_ring);
+    ring_buffer_destroy(g_ctx->detail_ring);
     
     // Cleanup shared memory
-    shared_memory_destroy(ctx->shm_control);
-    shared_memory_destroy(ctx->shm_index);
-    shared_memory_destroy(ctx->shm_detail);
+    shared_memory_destroy(g_ctx->shm_control);
+    shared_memory_destroy(g_ctx->shm_index);
+    shared_memory_destroy(g_ctx->shm_detail);
     
-    free(ctx);
-    ctx = NULL;
+    free(g_ctx);
+    g_ctx = NULL;
     
     pthread_key_delete(g_tls_key);
     

@@ -1,37 +1,55 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+// Unit tests for Spawn Method using Google Test
+// Direct translation from test_spawn_method.c
+#include <gtest/gtest.h>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <unistd.h>
 #include <signal.h>
 #include <sys/wait.h>
-#include <assert.h>
-#include "frida_controller.h"
 
-// Signal handler to track if we received multiple resume signals
-static int resume_count = 0;
-static void sigcont_handler(int sig) {
-    if (sig == SIGCONT) {
-        resume_count++;
-    }
+extern "C" {
+    #include "frida_controller.h"
+    #include "ada_paths.h"
 }
 
-void test_spawn_attach_resume() {
-    printf("Testing POSIX spawn uses only SIGCONT...\n");
+// Test fixture for spawn method tests
+class SpawnMethodTest : public ::testing::Test {
+protected:
+    void SetUp() override {
+        printf("[SPAWN] Setting up test\n");
+        controller = nullptr;
+    }
+    
+    void TearDown() override {
+        if (controller) {
+            frida_controller_destroy(controller);
+            controller = nullptr;
+        }
+    }
+    
+    FridaController* controller;
+};
+
+// Test: controller__spawn_attach_resume__then_process_runs
+// Direct translation of test_spawn_attach_resume()
+TEST_F(SpawnMethodTest, controller__spawn_attach_resume__then_process_runs) {
+    printf("[SPAWN] spawn_attach_resume → process runs\n");
     
     // Create controller
-    FridaController* controller = frida_controller_create("/tmp/ada_test");
-    assert(controller != NULL);
+    controller = frida_controller_create("/tmp/ada_test");
+    ASSERT_NE(controller, nullptr);
     
-    char* argv[] = {"test_cli", "--test", NULL};
+    char* argv[] = {(char*)"test_cli", (char*)"--test", nullptr};
     uint32_t pid;
     
     int result = frida_controller_spawn_suspended(controller, 
-        "/Users/wezzard/Projects/ADA/target/release/tracer_backend/test/test_cli",
+        ADA_WORKSPACE_ROOT "/target/" ADA_BUILD_PROFILE "/tracer_backend/test/test_cli",
         argv, &pid);
     
     if (result != 0) {
         printf("  ⚠️  Spawn failed - skipping test (may need to build test_cli first)\n");
-        frida_controller_destroy(controller);
+        GTEST_SKIP();
         return;
     }
     
@@ -39,11 +57,11 @@ void test_spawn_attach_resume() {
     
     // Attach to the process
     result = frida_controller_attach(controller, pid);
-    assert(result == 0);
+    ASSERT_EQ(result, 0);
     
     // Resume - should use SIGCONT only
     result = frida_controller_resume(controller);
-    assert(result == 0);
+    ASSERT_EQ(result, 0);
     
     // Give it a moment to run
     usleep(100000); // 100ms
@@ -51,70 +69,69 @@ void test_spawn_attach_resume() {
     // Check process state - should be running
     ProcessState state = frida_controller_get_state(controller);
     // TODO: We don't inject native agent at the moment, so we can't assert this
-    // assert(state == PROCESS_STATE_RUNNING);
+    // ASSERT_EQ(state, PROCESS_STATE_RUNNING);
     
     // Clean up - kill the test process
     kill(pid, SIGTERM);
-    waitpid(pid, NULL, 0);
+    waitpid(pid, nullptr, 0);
     
-    frida_controller_destroy(controller);
     printf("  ✓ POSIX spawn resume test passed\n");
 }
 
-void test_controller_state_tracking() {
-    printf("Testing controller state tracking...\n");
+// Test: controller__state_tracking__then_transitions_correctly
+// Direct translation of test_controller_state_tracking()
+TEST_F(SpawnMethodTest, controller__state_tracking__then_transitions_correctly) {
+    printf("[SPAWN] state_tracking → transitions correctly\n");
     
-    FridaController* controller = frida_controller_create("/tmp/ada_test");
-    assert(controller != NULL);
+    controller = frida_controller_create("/tmp/ada_test");
+    ASSERT_NE(controller, nullptr);
     
     // Initial state should be INITIALIZED
     ProcessState state = frida_controller_get_state(controller);
-    assert(state == PROCESS_STATE_INITIALIZED);
+    ASSERT_EQ(state, PROCESS_STATE_INITIALIZED);
     printf("  Initial state: INITIALIZED\n");
     
     // Spawn a test process
-    char* argv[] = {"test_cli", NULL};
+    char* argv[] = {(char*)"test_cli", nullptr};
     uint32_t pid;
     
     int result = frida_controller_spawn_suspended(controller,
-        "/Users/wezzard/Projects/ADA/target/release/tracer_backend/test/test_cli",
+        ADA_WORKSPACE_ROOT "/target/" ADA_BUILD_PROFILE "/tracer_backend/test/test_cli",
         argv, &pid);
     
     if (result == 0) {
         // After spawn, should be SUSPENDED
         state = frida_controller_get_state(controller);
-        assert(state == PROCESS_STATE_SUSPENDED);
+        ASSERT_EQ(state, PROCESS_STATE_SUSPENDED);
         printf("  After spawn: SUSPENDED\n");
         
         // After attach
         frida_controller_attach(controller, pid);
         state = frida_controller_get_state(controller);
-        assert(state == PROCESS_STATE_ATTACHED);
+        ASSERT_EQ(state, PROCESS_STATE_ATTACHED);
         printf("  After attach: ATTACHED\n");
         
         // After resume
         frida_controller_resume(controller);
         state = frida_controller_get_state(controller);
-        assert(state == PROCESS_STATE_RUNNING);
+        ASSERT_EQ(state, PROCESS_STATE_RUNNING);
         printf("  After resume: RUNNING\n");
         
         // Clean up
         kill(pid, SIGTERM);
-        waitpid(pid, NULL, 0);
+        waitpid(pid, nullptr, 0);
+    } else {
+        printf("  ⚠️  Spawn failed - skipping state transition tests\n");
+        GTEST_SKIP();
     }
     
-    frida_controller_destroy(controller);
     printf("  ✓ State tracking test passed\n");
 }
 
-void test_no_double_resume() {
-    printf("Testing no double resume occurs...\n");
-    
-    // Install signal handler to detect SIGCONT
-    struct sigaction sa;
-    sa.sa_handler = sigcont_handler;
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = 0;
+// Test: controller__double_resume_prevention__then_logic_verified
+// Direct translation of test_no_double_resume()
+TEST_F(SpawnMethodTest, controller__double_resume_prevention__then_logic_verified) {
+    printf("[SPAWN] double_resume_prevention → logic verified\n");
     
     // We can't directly test this without spawning a child that reports back
     // For now, we verify the logic path
@@ -122,24 +139,12 @@ void test_no_double_resume() {
     printf("  The spawn_method field ensures only one resume path is taken\n");
     
     // Create controller and verify spawn_method is initialized
-    FridaController* controller = frida_controller_create("/tmp/ada_test");
-    assert(controller != NULL);
+    controller = frida_controller_create("/tmp/ada_test");
+    ASSERT_NE(controller, nullptr);
     
     // The spawn_method should be NONE initially (verified in code)
     // After POSIX spawn, it should be SPAWN_METHOD_POSIX
     // After Frida spawn, it should be SPAWN_METHOD_FRIDA
     
-    frida_controller_destroy(controller);
     printf("  ✓ Double resume prevention logic verified\n");
-}
-
-int main() {
-    printf("=== Spawn Method Tracking Tests ===\n\n");
-    
-    test_spawn_attach_resume();
-    test_controller_state_tracking();
-    test_no_double_resume();
-    
-    printf("\n✅ All spawn method tests passed!\n");
-    return 0;
 }

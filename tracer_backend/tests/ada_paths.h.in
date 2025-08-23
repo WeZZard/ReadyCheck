@@ -1,0 +1,10 @@
+#pragma once
+
+#ifndef ADA_WORKSPACE_ROOT
+#define ADA_WORKSPACE_ROOT "@ADA_WORKSPACE_ROOT@"
+#endif
+
+#ifndef ADA_BUILD_PROFILE
+#define ADA_BUILD_PROFILE "@ADA_BUILD_PROFILE@"
+#endif
+

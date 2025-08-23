@@ -1,5 +1,6 @@
 use std::env;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 fn main() {
     println!("cargo:rerun-if-changed=src/");
@@ -16,11 +17,23 @@ fn main() {
         _ => "Debug",
     };
     
+    // Discover git top-level (workspace root) for deterministic paths
+    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
+    let workspace_root = git_top_level(&manifest_dir)
+        .unwrap_or_else(|| manifest_dir.parent().unwrap_or(&manifest_dir).to_path_buf());
+
+    // Expose workspace root and build profile
+    println!("cargo:rustc-env=ADA_WORKSPACE_ROOT={}", workspace_root.display());
+    println!("cargo:rustc-env=ADA_BUILD_PROFILE={}", profile);
+
     // Build the C/C++ components using cmake
     let dst = cmake::Config::new(".")
         .define("CMAKE_BUILD_TYPE", build_type)
         .define("CMAKE_EXPORT_COMPILE_COMMANDS", "ON") // Generate compile_commands.json
-        .define("BUILD_TESTING", "OFF") // Don't build C tests during Rust build
+        .define("BUILD_TESTING", "ON") // Build tests including Google Test
+        .define("CMAKE_CXX_STANDARD", "17") // Ensure C++17 for Google Test
+        .define("ADA_WORKSPACE_ROOT", workspace_root.display().to_string())
+        .define("ADA_BUILD_PROFILE", &profile)
         .build();
     
     // Report the location of compile_commands.json for IDE consumption
@@ -113,12 +126,13 @@ fn main() {
         ("bin/tracer_poc", "bin/tracer_poc"),
         ("bin/test_cli", "test/test_cli"),
         ("bin/test_runloop", "test/test_runloop"),
-        ("build/test_shared_memory", "test/test_shared_memory"),
+        // Google Test executables
         ("build/test_ring_buffer", "test/test_ring_buffer"),
         ("build/test_ring_buffer_attach", "test/test_ring_buffer_attach"),
+        ("build/test_shared_memory", "test/test_shared_memory"),
         ("build/test_spawn_method", "test/test_spawn_method"),
-        ("build/test_integration", "test/test_integration"),
         ("build/test_controller_full_lifecycle", "test/test_controller_full_lifecycle"),
+        ("build/test_integration", "test/test_integration"),
         ("build/test_agent_loader", "test/test_agent_loader"),
     ];
     
@@ -207,4 +221,20 @@ fn generate_bindings(out_dir: &Path) {
                 .expect("Couldn't write bindings!");
         }
     }
+}
+
+fn git_top_level(start: &Path) -> Option<PathBuf> {
+    // Try using `git rev-parse --show-toplevel`
+    if let Ok(output) = Command::new("git")
+        .current_dir(start)
+        .arg("rev-parse")
+        .arg("--show-toplevel")
+        .output()
+    {
+        if output.status.success() {
+            let s = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !s.is_empty() { return Some(PathBuf::from(s)); }
+        }
+    }
+    None
 }

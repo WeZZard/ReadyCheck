@@ -271,24 +271,23 @@ mod tests {
         Ok(())
     }
     
-    #[test]
-    fn test_shared_memory() {
-        run_c_test("test_shared_memory").expect("Shared memory test failed");
-    }
-    
+    // Google Test integration
     #[test]
     fn test_ring_buffer() {
         run_c_test("test_ring_buffer").expect("Ring buffer test failed");
     }
     
     #[test]
-    #[serial]
     fn test_ring_buffer_attach() {
         run_c_test("test_ring_buffer_attach").expect("Ring buffer attach test failed");
     }
     
     #[test]
-    #[serial]
+    fn test_shared_memory() {
+        run_c_test("test_shared_memory").expect("Shared memory test failed");
+    }
+    
+    #[test]
     fn test_spawn_method() {
         run_c_test("test_spawn_method").expect("Spawn method test failed");
     }
@@ -297,5 +296,17 @@ mod tests {
     #[serial]
     fn test_controller_full_lifecycle() {
         run_c_test("test_controller_full_lifecycle").expect("Controller full lifecycle test failed");
+    }
+    
+    #[test]
+    #[serial]
+    fn test_integration() {
+        run_c_test("test_integration").expect("Integration test failed");
+    }
+    
+    #[test]
+    #[serial]
+    fn test_agent_loader() {
+        run_c_test("test_agent_loader").expect("Agent loader test failed");
     }
 }

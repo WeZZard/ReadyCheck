@@ -10,11 +10,38 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Always generate compile_commands.json for IDE support
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# Options
+option(BUILD_TESTING "Build tests" ON)
+option(ENABLE_COVERAGE "Enable coverage reporting" OFF)
+
 # Add the cmake modules path
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../utils/cmake")
 
+# Coverage flags
+if(ENABLE_COVERAGE)
+    message(STATUS "Coverage enabled")
+    add_compile_options(-fprofile-instr-generate -fcoverage-mapping)
+    add_link_options(-fprofile-instr-generate -fcoverage-mapping)
+endif()
+
 # Find required packages
 find_package(Threads REQUIRED)
+
+# Fetch GoogleTest (includes GMock)
+if(BUILD_TESTING)
+    include(FetchContent)
+    FetchContent_Declare(
+        googletest
+        GIT_REPOSITORY https://github.com/google/googletest.git
+        GIT_TAG        v1.14.0
+    )
+    # For Windows: Prevent overriding the parent project's compiler/linker settings
+    set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(googletest)
+    
+    enable_testing()
+    include(GoogleTest)
+endif()
 
 # Set third_parties directory
 set(THIRD_PARTIES_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../third_parties")
@@ -191,135 +218,188 @@ target_link_libraries(tracer_poc
 # ===========================================
 enable_testing()
 
-# Unit tests for shared memory
-add_executable(test_shared_memory
-    tests/unit/test_shared_memory.c
-)
+# ===========================================
+# Google Test Integration
+# ===========================================
+if(BUILD_TESTING)
+    # Test infrastructure: compiled-in defaults and test environment variables
+    # These are provided by build.rs via -D on cmake configure
+    if(NOT DEFINED ADA_WORKSPACE_ROOT)
+        set(ADA_WORKSPACE_ROOT "${CMAKE_SOURCE_DIR}/..")
+    endif()
+    if(NOT DEFINED ADA_BUILD_PROFILE)
+        set(ADA_BUILD_PROFILE "$<CONFIG>")
+    endif()
 
-target_include_directories(test_shared_memory
-    PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-)
-
-target_link_libraries(test_shared_memory
-    PRIVATE
-        tracer_utils
-)
-
-add_test(NAME test_shared_memory COMMAND test_shared_memory)
-
-# Unit tests for ring buffer
-add_executable(test_ring_buffer
-    tests/unit/test_ring_buffer.c
-)
-
-target_include_directories(test_ring_buffer
-    PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-)
-
-target_link_libraries(test_ring_buffer
-    PRIVATE
-        tracer_utils
-        Threads::Threads
-)
-
-add_test(NAME test_ring_buffer COMMAND test_ring_buffer)
-
-# Unit tests for ring buffer attach
-add_executable(test_ring_buffer_attach
-    tests/unit/test_ring_buffer_attach.c
-)
-
-target_include_directories(test_ring_buffer_attach
-    PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-)
-
-target_link_libraries(test_ring_buffer_attach
-    PRIVATE
-        tracer_utils
-        Threads::Threads
-)
-
-add_test(NAME test_ring_buffer_attach COMMAND test_ring_buffer_attach)
-
-# Unit tests for spawn method tracking
-add_executable(test_spawn_method
-    tests/unit/test_spawn_method.c
-)
-
-target_include_directories(test_spawn_method
-    PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-        ${FRIDA_CORE_INCLUDE_DIR}
-)
-
-target_link_libraries(test_spawn_method
-    PRIVATE
-        tracer_controller
-        tracer_utils
-)
-
-add_test(NAME test_spawn_method COMMAND test_spawn_method)
-
-# Integration test
-add_executable(test_integration
-    tests/integration/test_integration.c
-)
-
-target_include_directories(test_integration
-    PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-        ${FRIDA_CORE_INCLUDE_DIR}
-)
-
-target_link_libraries(test_integration
-    PRIVATE
-        tracer_controller
-        tracer_utils
-)
-
-add_test(NAME test_integration COMMAND test_integration)
-
-# Controller full lifecycle integration test
-add_executable(test_controller_full_lifecycle
-    tests/integration/test_controller_full_lifecycle.c
-)
-
-target_include_directories(test_controller_full_lifecycle
-    PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-        ${FRIDA_CORE_INCLUDE_DIR}
-)
-
-target_link_libraries(test_controller_full_lifecycle
-    PRIVATE
-        tracer_controller
-        tracer_utils
-        ${CMAKE_DL_LIBS}
-)
-
-add_test(NAME test_controller_full_lifecycle COMMAND test_controller_full_lifecycle)
-
-# Agent loader integration test (M1_E1_I1)
-add_executable(test_agent_loader
-    tests/integration/test_agent_loader.c
-)
-
-target_include_directories(test_agent_loader
-    PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-        ${FRIDA_CORE_INCLUDE_DIR}
-)
-
-target_link_libraries(test_agent_loader
-    PRIVATE
-        tracer_controller
-        tracer_utils
-)
-
-add_test(NAME test_agent_loader COMMAND test_agent_loader)
+    # Generate a header with compile-time defaults
+    configure_file(
+      ${CMAKE_CURRENT_SOURCE_DIR}/tests/ada_paths.h.in
+      ${CMAKE_CURRENT_BINARY_DIR}/generated/ada_paths.h
+      @ONLY
+    )
+    include_directories(${CMAKE_CURRENT_BINARY_DIR}/generated)
+    # Unit tests with Google Test
+    add_executable(test_ring_buffer
+        tests/unit/test_ring_buffer.cpp
+        tests/test_main.cpp
+    )
+    
+    target_include_directories(test_ring_buffer
+        PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/include
+    )
+    
+    target_link_libraries(test_ring_buffer
+        PRIVATE
+            GTest::gtest
+            GTest::gmock
+            tracer_utils
+            Threads::Threads
+    )
+    
+    add_executable(test_ring_buffer_attach
+        tests/unit/test_ring_buffer_attach.cpp
+        tests/test_main.cpp
+    )
+    
+    target_include_directories(test_ring_buffer_attach
+        PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/include
+    )
+    
+    target_link_libraries(test_ring_buffer_attach
+        PRIVATE
+            GTest::gtest
+            GTest::gmock
+            tracer_utils
+            Threads::Threads
+    )
+    
+    add_executable(test_shared_memory
+        tests/unit/test_shared_memory.cpp
+        tests/test_main.cpp
+    )
+    
+    target_include_directories(test_shared_memory
+        PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/include
+    )
+    
+    target_link_libraries(test_shared_memory
+        PRIVATE
+            GTest::gtest
+            GTest::gmock
+            tracer_utils
+            Threads::Threads
+    )
+    
+    # Unit test for spawn method
+    add_executable(test_spawn_method
+        tests/unit/test_spawn_method.cpp
+        tests/test_main.cpp
+    )
+    
+    target_include_directories(test_spawn_method
+        PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/include
+            ${FRIDA_CORE_INCLUDE_DIR}
+    )
+    
+    target_link_libraries(test_spawn_method
+        PRIVATE
+            GTest::gtest
+            GTest::gmock
+            tracer_controller
+            tracer_utils
+            Threads::Threads
+    )
+    
+    # Integration test for controller full lifecycle
+    add_executable(test_controller_full_lifecycle
+        tests/integration/test_controller_full_lifecycle.cpp
+        tests/test_main.cpp
+    )
+    
+    target_include_directories(test_controller_full_lifecycle
+        PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/include
+            ${FRIDA_CORE_INCLUDE_DIR}
+    )
+    
+    target_link_libraries(test_controller_full_lifecycle
+        PRIVATE
+            GTest::gtest
+            GTest::gmock
+            tracer_controller
+            tracer_utils
+            Threads::Threads
+            ${CMAKE_DL_LIBS}
+    )
+    
+    # Integration test
+    add_executable(test_integration
+        tests/integration/test_integration.cpp
+        tests/test_main.cpp
+    )
+    
+    target_include_directories(test_integration
+        PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/include
+            ${FRIDA_CORE_INCLUDE_DIR}
+    )
+    
+    target_link_libraries(test_integration
+        PRIVATE
+            GTest::gtest
+            GTest::gmock
+            tracer_controller
+            tracer_utils
+            Threads::Threads
+    )
+    
+    # Agent loader test for M1_E1_I1
+    add_executable(test_agent_loader
+        tests/integration/test_agent_loader.cpp
+        tests/test_main.cpp
+    )
+    
+    target_include_directories(test_agent_loader
+        PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/include
+            ${FRIDA_CORE_INCLUDE_DIR}
+    )
+    
+    target_link_libraries(test_agent_loader
+        PRIVATE
+            GTest::gtest
+            GTest::gmock
+            tracer_controller
+            tracer_utils
+            Threads::Threads
+    )
+    
+    # Discover tests for CTest
+    gtest_discover_tests(test_ring_buffer)
+    gtest_discover_tests(test_ring_buffer_attach)
+    gtest_discover_tests(test_shared_memory)
+    gtest_discover_tests(test_spawn_method)
+    gtest_discover_tests(test_controller_full_lifecycle)
+    gtest_discover_tests(test_integration)
+    gtest_discover_tests(test_agent_loader)
+    
+    # Add a custom target to run all GTests with nice output
+    add_custom_target(run_gtests
+        COMMAND env ADA_BUILD_PROFILE=$<CONFIG> ADA_WORKSPACE_ROOT=${ADA_WORKSPACE_ROOT} test_ring_buffer --gtest_color=yes
+        COMMAND env ADA_BUILD_PROFILE=$<CONFIG> ADA_WORKSPACE_ROOT=${ADA_WORKSPACE_ROOT} test_ring_buffer_attach --gtest_color=yes
+        COMMAND env ADA_BUILD_PROFILE=$<CONFIG> ADA_WORKSPACE_ROOT=${ADA_WORKSPACE_ROOT} test_shared_memory --gtest_color=yes
+        COMMAND env ADA_BUILD_PROFILE=$<CONFIG> ADA_WORKSPACE_ROOT=${ADA_WORKSPACE_ROOT} test_spawn_method --gtest_color=yes
+        COMMAND env ADA_BUILD_PROFILE=$<CONFIG> ADA_WORKSPACE_ROOT=${ADA_WORKSPACE_ROOT} test_controller_full_lifecycle --gtest_color=yes
+        COMMAND env ADA_BUILD_PROFILE=$<CONFIG> ADA_WORKSPACE_ROOT=${ADA_WORKSPACE_ROOT} test_integration --gtest_color=yes
+        COMMAND env ADA_BUILD_PROFILE=$<CONFIG> ADA_WORKSPACE_ROOT=${ADA_WORKSPACE_ROOT} test_agent_loader --gtest_color=yes
+        DEPENDS test_ring_buffer test_ring_buffer_attach test_shared_memory test_spawn_method test_controller_full_lifecycle test_integration test_agent_loader
+        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+    )
+endif()
 
 # ===========================================
 # Installation

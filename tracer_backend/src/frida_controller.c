@@ -372,27 +372,59 @@ int frida_controller_attach(FridaController* controller, uint32_t pid) {
 int frida_controller_install_hooks(FridaController* controller) {
     if (!controller || !controller->session) return -1;
     
-    // Compute absolute path to the agent library
+    // Compute absolute path to the agent library using an RPATH-like mechanism
     char agent_path[1024];
+    memset(agent_path, 0, sizeof(agent_path));
     const char* build_type = getenv("ADA_BUILD_TYPE");
     if (!build_type) build_type = "debug";  // default to debug
-    
-    // Try predictable path first
-    snprintf(agent_path, sizeof(agent_path),
-             "%s/target/%s/tracer_backend/lib/libfrida_agent.dylib",
-             getenv("PWD") ? getenv("PWD") : ".", build_type);
-    
-    // Check if file exists
-    if (access(agent_path, F_OK) != 0) {
-        // Try alternative path
-        snprintf(agent_path, sizeof(agent_path),
-                 "/Users/wezzard/Projects/ADA/target/%s/tracer_backend/lib/libfrida_agent.dylib",
-                 build_type);
-        
-        if (access(agent_path, F_OK) != 0) {
-            fprintf(stderr, "[Controller] Agent library not found at %s\n", agent_path);
-            return -1;
+
+#ifdef __APPLE__
+    const char* lib_basename = "libfrida_agent.dylib";
+#else
+    const char* lib_basename = "libfrida_agent.so";
+#endif
+
+    // 1) Check ADA_AGENT_RPATH (colon-separated search paths)
+    const char* rpath = getenv("ADA_AGENT_RPATH");
+    gboolean found = FALSE;
+    if (rpath && *rpath) {
+        const char* p = rpath;
+        while (p && *p) {
+            const char* colon = strchr(p, ':');
+            if (colon) {
+                snprintf(agent_path, sizeof(agent_path), "%.*s/%s", (int)(colon - p), p, lib_basename);
+                printf("[Controller] Trying agent path: %s\n", agent_path);
+                p = colon + 1;
+            } else {
+                snprintf(agent_path, sizeof(agent_path), "%s/%s", p, lib_basename);
+                printf("[Controller] Trying agent path: %s\n", agent_path);
+                p = NULL;
+            }
+            if (access(agent_path, F_OK) == 0) { found = TRUE; break; }
         }
+    }
+
+    // 2) Predictable workspace-relative path
+    if (!found) {
+        snprintf(agent_path, sizeof(agent_path),
+                 "%s/target/%s/tracer_backend/lib/%s",
+                 getenv("PWD") ? getenv("PWD") : ".", build_type, lib_basename);
+        printf("[Controller] Trying agent path: %s\n", agent_path);
+        if (access(agent_path, F_OK) == 0) found = TRUE;
+    }
+
+    // 3) Fallback to search with the test products pattern
+    if (!found) {
+        snprintf(agent_path, sizeof(agent_path),
+                 "../lib/%s",
+                 lib_basename);
+        printf("[Controller] Trying agent path: %s\n", agent_path);
+        if (access(agent_path, F_OK) == 0) found = TRUE;
+    }
+
+    if (!found) {
+        fprintf(stderr, "[Controller] Agent library not found (set ADA_AGENT_RPATH or build the agent)\n");
+        return -1;
     }
     
     printf("[Controller] Using agent library: %s\n", agent_path);
@@ -653,11 +685,13 @@ static void on_message(FridaScript* script, const gchar* message,
 
 // Drain thread
 static void* drain_thread_func(void* arg) {
+    g_print("Drain thread started\n");
     FridaController* controller = (FridaController*)arg;
     IndexEvent index_events[1000];
     DetailEvent detail_events[100];
-    
+    g_print("Drain thread initialized\n");
     while (controller->drain_running) {
+        g_print("Drain thread running\n");
         // Drain index lane
         size_t index_count = ring_buffer_read_batch(controller->index_ring, 
                                                     index_events, 1000);
@@ -691,6 +725,6 @@ static void* drain_thread_func(void* arg) {
         // Sleep for 100ms
         usleep(100000);
     }
-    
+    g_print("Drain thread exiting\n");
     return NULL;
 }

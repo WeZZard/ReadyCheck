@@ -310,8 +310,16 @@ For non-Rust binaries (C/C++ examples, tests), access them via predictable paths
 All code in this repository must be covered by automated tests and measured with code coverage tools:
 
 - Rust – Use cargo built-in support (e.g., cargo tarpaulin or cargo llvm-cov).
-- C / C++ – Organize with CMake and use LLVM coverage tools (e.g., llvm-profdata, llvm-cov) to calculate line coverage.
+- C / C++ – **MANDATORY: Use Google Test (gtest/gmock) framework for all C/C++ tests**. Organize with CMake and use LLVM coverage tools (e.g., llvm-profdata, llvm-cov) to calculate line coverage.
 - Python – Use community standard tools (e.g., pytest, coverage.py) for reporting.
+
+### Programming-Language-Specific Enforcement
+
+| Language | Toolchain | Build System                          | Package Manager   | Test Coverage Tool | Testing Framework |
+| -------- | --------- | ------------------------------------- | ----------------- | ------------------ | ----------------- |
+| Rust     | stable    | Cargo                                 | Ccargo + crates.i | cargo-llvm-cov     | cargo test        |
+| C/C++    | clang     | CMake + clang (orchestrated by Cargo) | CMake             | llvm-cov           | Google Test       |
+| Python   | maturin   | maturin (orchestrated by Cargo)       | pip               | pytest-cov         | pytest            |
 
 ### Third-Party Dependencies
 
@@ -334,12 +342,6 @@ Key points:
 - Platform-specific SDKs are downloaded automatically (macos-arm64, linux-x86_64, etc.)
 - CMake integration via `utils/cmake/FindFrida.cmake`
 - Rust integration via build.rs using cmake crate
-
-### Toolchain & Package Management Systems
-
-- Rust: stable
-- C/C++: CMake and clang
-- Python: maturin
 
 ### Cross-Platform Notes
 
