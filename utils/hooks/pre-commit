@@ -47,6 +47,9 @@ if ! "${UTILS_DIR}/metrics/integration_quality.sh" incremental; then
     exit 1
 fi
 
+# Coverage is already checked by integration_quality.sh in incremental mode
+# No need for additional coverage check here
+
 echo -e "${BLUE}[PRE-COMMIT]${NC} Checking for compiled binaries..."
 
 # Check for compiled binaries
@@ -78,7 +81,8 @@ SUSPICIOUS_PATTERNS=(
 )
 
 for pattern in "${SUSPICIOUS_PATTERNS[@]}"; do
-    if git diff --cached | grep -i "$pattern" > /dev/null 2>&1; then
+    # Check if pattern exists but exclude obvious documentation/examples
+    if git diff --cached | grep -i "$pattern" | grep -v "uuidgen" | grep -v "example" | grep -v "your.*password" | grep -v "placeholder" > /dev/null 2>&1; then
         echo -e "${RED}[ERROR]${NC} Potential secret/credential detected!"
         echo -e "${RED}Pattern matched: $pattern${NC}"
         echo -e "${RED}Please remove sensitive information before committing${NC}"

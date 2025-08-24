@@ -86,8 +86,18 @@ This activity ensures the environment is ready for tracing before launching.
     - I want clear, user-friendly explanations when system binaries cannot be traced
     - So that I understand this is a platform security feature, not a bug in the tool.
 
+4. As a **Human Developer**
+    - I want to be informed when a binary cannot be traced due to platform security restrictions
+    - So that I can take the appropriate platform-specific actions to enable tracing.
+
+5. As a **Human Developer**
+    - I want to deploy a local daemon server with full tracing permissions
+    - So that I can connect remotely and trace binaries through the daemon as if I were using the system locally.
+
 Notes:
 - Keep user-facing language plain and platform-agnostic in stories; technical procedures live in `docs/specs/PERMISSIONS_AND_ENVIRONMENT.md` and `docs/specs/PLATFORM_LIMITATIONS.md`.
+- Platform-specific security requirements (e.g., macOS code signing, Linux ptrace) are detailed in `docs/specs/PLATFORM_SECURITY_REQUIREMENTS.md`.
+- Daemon deployment mode is documented in `docs/specs/DAEMON_ARCHITECTURE.md`.
 
 ---
 

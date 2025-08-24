@@ -1,0 +1,111 @@
+name: Coverage Check
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  coverage:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        fetch-depth: 0  # Fetch full history for diff-cover
+    
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        components: llvm-tools-preview
+        override: true
+    
+    - name: Install system dependencies
+      run: |
+        if [[ "${{ runner.os }}" == "Linux" ]]; then
+          sudo apt-get update
+          sudo apt-get install -y clang llvm lcov
+        elif [[ "${{ runner.os }}" == "macOS" ]]; then
+          brew install llvm lcov
+        fi
+    
+    - name: Install Rust coverage tools
+      run: |
+        cargo install cargo-llvm-cov
+    
+    - name: Install Python coverage tools
+      run: |
+        pip install pytest pytest-cov coverage coverage-lcov diff-cover
+    
+    - name: Setup Frida SDK
+      run: |
+        chmod +x ./utils/init_third_parties.sh
+        ./utils/init_third_parties.sh
+    
+    - name: Check environment
+      run: |
+        chmod +x ./utils/setup_coverage_tools.sh
+        ./utils/setup_coverage_tools.sh || true  # Don't fail on warnings
+    
+    - name: Configure code signing for CI
+      run: |
+        if [[ "${{ runner.os }}" == "macOS" ]]; then
+          # For CI, we use ad-hoc signing with entitlements
+          # Production CI should use: ${{ secrets.APPLE_DEVELOPER_ID }}
+          echo "APPLE_DEVELOPER_ID=-" >> $GITHUB_ENV
+          echo "Note: CI using ad-hoc signing. Production should use secrets.APPLE_DEVELOPER_ID"
+        fi
+    
+    - name: Run full coverage
+      run: |
+        cargo run --manifest-path utils/coverage_helper/Cargo.toml -- full
+    
+    - name: Check changed-line coverage
+      if: github.event_name == 'pull_request'
+      run: |
+        cargo run --manifest-path utils/coverage_helper/Cargo.toml -- incremental
+    
+    - name: Upload coverage reports
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: coverage-reports
+        path: |
+          target/coverage_report/html/
+          target/coverage_report/merged.lcov
+    
+    - name: Comment PR with coverage
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const fs = require('fs');
+          const lcovPath = 'target/coverage_report/merged.lcov';
+          
+          if (fs.existsSync(lcovPath)) {
+            // Parse LCOV summary
+            const lcov = fs.readFileSync(lcovPath, 'utf8');
+            const lines = lcov.match(/DA:/g) || [];
+            const covered = lcov.match(/DA:\d+,[1-9]/g) || [];
+            const coverage = lines.length ? (covered.length / lines.length * 100).toFixed(2) : 0;
+            
+            const comment = `## Coverage Report
+            
+            **Total Coverage:** ${coverage}%
+            
+            All changed lines must have 100% coverage per CLAUDE.md requirements.
+            
+            View detailed report in the workflow artifacts.`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+          }

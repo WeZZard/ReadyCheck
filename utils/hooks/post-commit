@@ -12,7 +12,7 @@ NC='\033[0m' # No Color
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 UTILS_DIR="${REPO_ROOT}/utils"
 COVERAGE_DIR="${REPO_ROOT}/target/coverage"
-REPORTS_DIR="${COVERAGE_DIR}/reports"
+REPORTS_DIR="${REPO_ROOT}/target/coverage_report"
 
 mkdir -p "${REPORTS_DIR}"
 mkdir -p "${COVERAGE_DIR}"
@@ -26,42 +26,41 @@ generate_reports() {
     COMMIT_SHA=$(git rev-parse --short HEAD)
     REPORT_NAME="coverage_${COMMIT_SHA}_${TIMESTAMP}"
     
-    # Make script executable
-    chmod +x "${UTILS_DIR}/metrics/integration_quality.sh"
-    
-    # Run full coverage analysis
-    "${UTILS_DIR}/metrics/integration_quality.sh" full > "${COVERAGE_DIR}/${REPORT_NAME}.log" 2>&1
+    # Run full coverage analysis using the new coverage_helper
+    echo "Running full coverage collection..." >> "${COVERAGE_DIR}/${REPORT_NAME}.log"
+    cargo run --manifest-path "${REPO_ROOT}/utils/coverage_helper/Cargo.toml" -- full >> "${COVERAGE_DIR}/${REPORT_NAME}.log" 2>&1
     
     # Create coverage trend file if it doesn't exist
     TREND_FILE="${COVERAGE_DIR}/coverage_trend.csv"
     if [[ ! -f "$TREND_FILE" ]]; then
-        echo "timestamp,commit,rust_coverage,cpp_coverage,python_query_coverage,python_mcp_coverage,integration_score" > "$TREND_FILE"
+        echo "timestamp,commit,total_coverage,integration_score" > "$TREND_FILE"
     fi
     
-    # Extract coverage percentages
-    RUST_COV=$(cat "${COVERAGE_DIR}/rust/coverage.txt" 2>/dev/null || echo "0")
-    CPP_COV=$(cat "${COVERAGE_DIR}/cpp/coverage.txt" 2>/dev/null || echo "0")
-    PY_QUERY_COV=$(cat "${COVERAGE_DIR}/python/query_engine_coverage.txt" 2>/dev/null || echo "0")
-    PY_MCP_COV=$(cat "${COVERAGE_DIR}/python/mcp_server_coverage.txt" 2>/dev/null || echo "0")
+    # Extract coverage percentages from merged LCOV
+    if [[ -f "${REPORTS_DIR}/merged.lcov" ]]; then
+        TOTAL_COV=$(lcov --summary "${REPORTS_DIR}/merged.lcov" 2>&1 | grep lines | awk '{print $2}' | sed 's/%//' || echo "0")
+    else
+        TOTAL_COV="0"
+    fi
     
     # Extract integration score from log
     INTEGRATION_SCORE=$(grep "INTEGRATION SCORE:" "${COVERAGE_DIR}/${REPORT_NAME}.log" | grep -oE '[0-9]+/100' | cut -d'/' -f1 || echo "0")
     
     # Append to trend file
-    echo "${TIMESTAMP},${COMMIT_SHA},${RUST_COV},${CPP_COV},${PY_QUERY_COV},${PY_MCP_COV},${INTEGRATION_SCORE}" >> "$TREND_FILE"
+    echo "${TIMESTAMP},${COMMIT_SHA},${TOTAL_COV},${INTEGRATION_SCORE}" >> "$TREND_FILE"
     
     # Generate trend analysis
     generate_trend_analysis
     
     # Open HTML report if in interactive mode and on macOS
     if [[ -t 1 ]] && [[ "$(uname)" == "Darwin" ]]; then
-        if [[ -f "${REPORTS_DIR}/rust/index.html" ]]; then
+        if [[ -f "${REPORTS_DIR}/html/index.html" ]]; then
             echo -e "${BLUE}[POST-COMMIT]${NC} Opening coverage report in browser..."
-            open "${REPORTS_DIR}/rust/index.html" 2>/dev/null || true
+            open "${REPORTS_DIR}/html/index.html" 2>/dev/null || true
         fi
     fi
     
-    echo -e "${GREEN}[POST-COMMIT]${NC} Coverage report generated: ${REPORTS_DIR}/summary.txt"
+    echo -e "${GREEN}[POST-COMMIT]${NC} Coverage report generated: ${REPORTS_DIR}/html/index.html"
     echo -e "${GREEN}[POST-COMMIT]${NC} Coverage trend updated: ${TREND_FILE}"
 }
 
@@ -94,8 +93,8 @@ EOF
         PREV_LINE=$(tail -2 "${COVERAGE_DIR}/coverage_trend.csv" | head -1)
         CURR_LINE=$(tail -1 "${COVERAGE_DIR}/coverage_trend.csv")
         
-        PREV_RUST=$(echo "$PREV_LINE" | cut -d',' -f3)
-        CURR_RUST=$(echo "$CURR_LINE" | cut -d',' -f3)
+        PREV_COV=$(echo "$PREV_LINE" | cut -d',' -f3)
+        CURR_COV=$(echo "$CURR_LINE" | cut -d',' -f3)
         
         cat >> "$TREND_REPORT" << EOF
 
@@ -105,14 +104,14 @@ EOF
         
         # Calculate and show delta
         if command -v bc &>/dev/null; then
-            RUST_DELTA=$(echo "$CURR_RUST - $PREV_RUST" | bc 2>/dev/null || echo "0")
+            COV_DELTA=$(echo "$CURR_COV - $PREV_COV" | bc 2>/dev/null || echo "0")
             
-            if (( $(echo "$RUST_DELTA > 0" | bc -l) )); then
-                echo "Rust Coverage: ↑ +${RUST_DELTA}% (improved)" >> "$TREND_REPORT"
-            elif (( $(echo "$RUST_DELTA < 0" | bc -l) )); then
-                echo "Rust Coverage: ↓ ${RUST_DELTA}% (decreased)" >> "$TREND_REPORT"
+            if (( $(echo "$COV_DELTA > 0" | bc -l) )); then
+                echo "Total Coverage: ↑ +${COV_DELTA}% (improved)" >> "$TREND_REPORT"
+            elif (( $(echo "$COV_DELTA < 0" | bc -l) )); then
+                echo "Total Coverage: ↓ ${COV_DELTA}% (decreased)" >> "$TREND_REPORT"
             else
-                echo "Rust Coverage: → 0% (unchanged)" >> "$TREND_REPORT"
+                echo "Total Coverage: → 0% (unchanged)" >> "$TREND_REPORT"
             fi
         fi
     fi
@@ -124,14 +123,13 @@ RECOMMENDATIONS:
 EOF
     
     # Provide recommendations based on coverage
-    if [[ -f "${COVERAGE_DIR}/rust/coverage.txt" ]]; then
-        RUST_COV=$(cat "${COVERAGE_DIR}/rust/coverage.txt")
-        if (( $(echo "$RUST_COV < 30" | bc -l 2>/dev/null || echo 1) )); then
-            echo "⚠ Rust coverage is below 30%. Consider adding more unit tests." >> "$TREND_REPORT"
-        elif (( $(echo "$RUST_COV < 60" | bc -l 2>/dev/null || echo 0) )); then
-            echo "→ Rust coverage is moderate. Target 80% for production readiness." >> "$TREND_REPORT"
+    if [[ -n "$TOTAL_COV" ]]; then
+        if (( $(echo "$TOTAL_COV < 30" | bc -l 2>/dev/null || echo 1) )); then
+            echo "⚠ Total coverage is below 30%. Consider adding more unit tests." >> "$TREND_REPORT"
+        elif (( $(echo "$TOTAL_COV < 60" | bc -l 2>/dev/null || echo 0) )); then
+            echo "→ Total coverage is moderate. Target 100% for changed lines per CLAUDE.md." >> "$TREND_REPORT"
         else
-            echo "✓ Rust coverage is good. Maintain or improve current levels." >> "$TREND_REPORT"
+            echo "✓ Total coverage is good. Maintain 100% coverage on changed lines." >> "$TREND_REPORT"
         fi
     fi
     

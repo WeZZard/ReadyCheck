@@ -68,7 +68,7 @@ Once installed, quality gates are automatically enforced:
 | Test Success | 100% | All tests must pass (Rust, C/C++, Python) |
 | No Regressions | 100% | No new test failures allowed |
 | API Completeness | 100% | No `todo!`, `unimplemented!`, `assert(0)` |
-| Coverage (Changed) | ≥80% | New/modified code must have coverage |
+| Coverage (Changed) | 100% | New/modified code must have 100% line coverage |
 
 ### Informational Metrics (Non-blocking)
 
@@ -79,25 +79,34 @@ Once installed, quality gates are automatically enforced:
 | Documentation | Report only | Missing docs, outdated examples |
 | Performance | Baseline tracking | Benchmark comparisons |
 
-## Coverage Collection
+## Coverage Collection (Option A Architecture)
 
 ### Rust Components
 - Tool: `cargo-llvm-cov`
-- Command: `cargo llvm-cov --all-features --workspace`
-- Output: LCOV format + HTML reports
-- Location: `target/coverage/rust/`
+- Command: `cargo llvm-cov --workspace --lcov --output-path target/coverage/rust.lcov`
+- Output: LCOV format
+- Raw data: `target/coverage/*.profraw`
+- Report: `target/coverage/rust.lcov`
 
 ### C/C++ Components
-- Tool: `llvm-cov` (preferred) or `gcovr` (fallback)
+- Tool: Clang + LLVM tools (llvm-cov, llvm-profdata)
 - Framework: Google Test (mandatory per CLAUDE.md)
-- Integration: Via CMake with coverage flags
-- Location: `target/coverage/cpp/`
+- Compiler: Must use Clang when coverage is enabled
+- Raw data: `target/coverage/cpp-*.profraw`
+- Report: `target/coverage/cpp.lcov`
 
 ### Python Components
-- Tool: `pytest-cov`
-- Command: `pytest --cov=[component] --cov-report=xml`
+- Tool: `pytest-cov` + `coverage-lcov`
+- Command: `pytest --cov=[component] --cov-report=xml` then convert to LCOV
 - Components: `query_engine`, `mcp_server`
-- Location: `target/coverage/python/`
+- Raw data: `.coverage` and `python.xml`
+- Report: `target/coverage/python.lcov`
+
+### Unified Reporting
+- Merge tool: `lcov` (merge all LCOV files)
+- HTML generator: `genhtml`
+- Merged report: `target/coverage_report/merged.lcov`
+- HTML output: `target/coverage_report/html/index.html`
 
 ## Integration Score
 
@@ -109,23 +118,30 @@ The system maintains an integration score (0-100) that determines pass/fail:
 
 Point Deductions:
 - Build failure: -100 points (immediate fail)
-- Test failures: -50 points per language
-- Incomplete implementations: -10 points per type
-- Coverage below threshold: -20 points
+- Test failures: -100 points (immediate fail)
+- Any uncovered changed line: -100 points (immediate fail)
+- Incomplete implementations: -100 points (immediate fail)
 ```
 
 ## Reports and Outputs
 
 ### Coverage Reports Location
 ```
-target/coverage/
-├── reports/
-│   ├── summary.txt           # Unified summary report
-│   ├── trend_analysis.txt    # Historical trend analysis
-│   ├── rust/                 # Rust HTML coverage
-│   └── python/               # Python HTML coverage
-├── coverage_trend.csv        # Historical data
-└── [component]/              # Raw coverage data
+target/coverage/              # Temporary coverage data (cleared on each run)
+├── *.profraw                # Raw profile data files
+├── *.profdata               # Processed profile data
+├── rust.lcov                # Rust LCOV output
+├── cpp.lcov                 # C/C++ LCOV output
+├── python.lcov              # Python LCOV output
+└── python.xml               # Python XML coverage (intermediate)
+
+target/coverage_report/       # Persistent report directory (not cleared)
+├── merged.lcov              # Combined LCOV from all languages
+├── html/                    # Unified HTML coverage report
+│   └── index.html          # Main entry point for coverage report
+├── coverage_trend.csv       # Historical coverage tracking
+├── summary.txt             # Coverage summary
+└── trend_analysis.txt      # Trend analysis report
 ```
 
 ### Report Format
@@ -146,18 +162,33 @@ The unified summary includes:
    cargo install cargo-llvm-cov
    ```
 
-2. **"gcovr not found" (C/C++ coverage)**
+2. **"lcov/genhtml not found"**
    ```bash
-   pip install gcovr
-   # Or on macOS: brew install gcovr
+   # macOS
+   brew install lcov
+   # Linux
+   apt-get install lcov
    ```
 
-3. **"timeout: command not found" (macOS)**
+3. **"coverage-lcov not found" (Python LCOV conversion)**
+   ```bash
+   pip install coverage-lcov
+   ```
+
+4. **"llvm-cov/llvm-profdata not found"**
+   ```bash
+   # Install LLVM tools
+   rustup component add llvm-tools-preview
+   # Or via Homebrew
+   brew install llvm
+   ```
+
+5. **"timeout: command not found" (macOS)**
    ```bash
    brew install coreutils  # Provides gtimeout
    ```
 
-4. **Hook not executing**
+6. **Hook not executing**
    ```bash
    # Verify hook is installed
    ls -la .git/hooks/pre-commit
@@ -167,7 +198,7 @@ The unified summary includes:
    ./utils/install_hooks.sh
    ```
 
-5. **Coverage tools missing**
+7. **Coverage tools missing**
    - Tools are recommended but not required
    - Hooks will still enforce build/test gates
    - Coverage checks will be skipped with warnings
@@ -186,12 +217,47 @@ For GitHub Actions or other CI systems:
 
 Set environment variable `CI=true` for CI-specific behavior.
 
+## Coverage Enforcement for Changed Lines
+
+### 100% Coverage Requirement
+
+Per CLAUDE.md, **100% line coverage is mandatory for all changed code**. The enforcement mechanism:
+
+1. **Extract Changed Lines**
+   ```bash
+   git diff --cached --unified=0 | parse_changed_lines
+   ```
+
+2. **Check Coverage in merged.lcov**
+   - Parse DA records in merged.lcov
+   - For each changed line, verify hit count > 0
+   - Any uncovered line = commit blocked
+
+3. **No Exceptions**
+   - No waivers for "untestable" code
+   - No reducing the 100% requirement
+   - Fix the design if code can't be tested
+
+### Example Enforcement
+
+```bash
+# Check coverage for changed files
+for file in $(git diff --cached --name-only); do
+  for line in $(git diff --cached $file | get_changed_lines); do
+    if ! grep -q "DA:$line,[1-9]" target/coverage_report/merged.lcov; then
+      echo "ERROR: Line $file:$line has no test coverage"
+      exit 1
+    fi
+  done
+done
+```
+
 ## Best Practices
 
 1. **Never bypass hooks**: `git commit --no-verify` is forbidden
 2. **Fix immediately**: Don't accumulate technical debt
 3. **Test before commit**: Run `./utils/metrics/integration_quality.sh score-only`
-4. **Monitor trends**: Check `target/coverage/coverage_trend.csv`
+4. **Monitor trends**: Check `target/coverage_report/coverage_trend.csv`
 5. **Incremental improvement**: Focus on new code quality
 
 ## Configuration

@@ -69,6 +69,64 @@ build_all() {
     fi
     
     log_success "Build completed successfully"
+    
+    # Mandatory code signing on macOS
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        sign_test_binaries
+    fi
+}
+
+# Sign test binaries (MANDATORY on macOS)
+sign_test_binaries() {
+    log_info "Signing test binaries (MANDATORY on macOS)..."
+    
+    # Check for Apple Developer certificate
+    if [[ -z "${APPLE_DEVELOPER_ID:-}" ]]; then
+        log_error "APPLE_DEVELOPER_ID environment variable not set"
+        log_error ""
+        log_error "You MUST have an Apple Developer certificate to develop ADA on macOS."
+        log_error "This is mandatory for remote development and testing."
+        log_error ""
+        log_error "To fix this:"
+        log_error "1. Get Apple Developer membership (\$99/year): https://developer.apple.com/programs/"
+        log_error "2. Create Developer ID certificate in Xcode"
+        log_error "3. Export APPLE_DEVELOPER_ID='Developer ID Application: Your Name (TEAMID)'"
+        log_error ""
+        log_error "See: docs/GETTING_STARTED.md#macos-apple-developer-certificate-mandatory"
+        deduct_points 100 "No Apple Developer certificate configured"
+        CRITICAL_FAILURES+=("Apple Developer certificate required but not configured")
+        return 1
+    fi
+    
+    # Sign all test binaries
+    local sign_count=0
+    local sign_failures=0
+    
+    # Find all test binaries
+    while IFS= read -r binary; do
+        ((sign_count++))
+        log_info "Signing: $binary"
+        # Use signing script and show output for debugging
+        if ! "${REPO_ROOT}/utils/sign_binary.sh" "$binary"; then
+            log_error "Failed to sign: $binary"
+            ((sign_failures++))
+        fi
+    done < <(find "${REPO_ROOT}/target" -name "test_*" -type f -perm +111 2>/dev/null)
+    
+    if [[ $sign_count -eq 0 ]]; then
+        log_warning "No test binaries found to sign"
+        return 0
+    fi
+    
+    if [[ $sign_failures -gt 0 ]]; then
+        log_error "Failed to sign $sign_failures out of $sign_count binaries"
+        deduct_points 100 "Binary signing failed"
+        CRITICAL_FAILURES+=("Test binary signing failed")
+        return 1
+    fi
+    
+    log_success "Successfully signed $sign_count test binaries"
+    return 0
 }
 
 # Run all tests through Cargo
@@ -103,21 +161,15 @@ collect_coverage() {
     log_info "Collecting coverage data through Cargo..."
     
     # Run the coverage helper to collect all coverage data
-    if ! cargo run --manifest-path "${REPO_ROOT}/utils/coverage_helper/Cargo.toml" -- collect; then
+    if ! cargo run --manifest-path "${REPO_ROOT}/utils/coverage_helper/Cargo.toml" -- full; then
         log_warning "Coverage collection failed"
         return 1
     fi
     
-    # Generate report
-    if ! cargo run --manifest-path "${REPO_ROOT}/utils/coverage_helper/Cargo.toml" -- report --format lcov; then
-        log_warning "Coverage report generation failed"
-        return 1
-    fi
-    
-    # Check if coverage meets requirements
-    if [[ -f "${REPO_ROOT}/target/coverage/coverage.lcov" ]]; then
-        local lines_hit=$(grep -c "DA:[0-9]*,[1-9]" "${REPO_ROOT}/target/coverage/coverage.lcov" 2>/dev/null || echo "0")
-        local lines_total=$(grep -c "DA:" "${REPO_ROOT}/target/coverage/coverage.lcov" 2>/dev/null || echo "0")
+    # Check if coverage meets requirements using the merged LCOV
+    if [[ -f "${REPO_ROOT}/target/coverage_report/merged.lcov" ]]; then
+        local lines_hit=$(grep -c "DA:[0-9]*,[1-9]" "${REPO_ROOT}/target/coverage_report/merged.lcov" 2>/dev/null || echo "0")
+        local lines_total=$(grep -c "DA:" "${REPO_ROOT}/target/coverage_report/merged.lcov" 2>/dev/null || echo "0")
         
         if [[ $lines_total -gt 0 ]]; then
             local coverage=$(awk "BEGIN {printf \"%.2f\", ($lines_hit / $lines_total) * 100}")
@@ -349,7 +401,7 @@ main() {
         echo -e   "${RED}║                                                            ║${NC}"
         echo -e   "${RED}║  • Build must succeed (100% required)                      ║${NC}"
         echo -e   "${RED}║  • All tests must pass (100% required)                     ║${NC}"
-        echo -e   "${RED}║  • Changed code must have ≥80% test coverage               ║${NC}"
+        echo -e   "${RED}║  • Changed code must have 100% test coverage               ║${NC}"
         echo -e   "${RED}║  • No incomplete implementations (todo!/assert(0)/etc)     ║${NC}"
         echo -e   "${RED}║                                                            ║${NC}"
         echo -e   "${RED}║  Per CLAUDE.md requirements:                               ║${NC}"
@@ -359,7 +411,7 @@ main() {
         echo -e   "${RED}║  - NO git commit --no-verify                               ║${NC}"
         echo -e   "${RED}║                                                            ║${NC}"
         echo -e   "${RED}║  Fix the issues and try again.                             ║${NC}"
-        echo -e   "${RED}╚════════════════════════════════════════════════════════════╝${NC}"
+        echo -e   "${RED}╚═══════════════════════════════════════════════════════════╝${NC}"
         return 1;
         ;;
         $CHECK_RESULT_DOCUMENT_ONLY)
