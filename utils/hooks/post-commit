@@ -14,6 +14,9 @@ UTILS_DIR="${REPO_ROOT}/utils"
 COVERAGE_DIR="${REPO_ROOT}/target/coverage"
 REPORTS_DIR="${COVERAGE_DIR}/reports"
 
+mkdir -p "${REPORTS_DIR}"
+mkdir -p "${COVERAGE_DIR}"
+
 echo -e "${BLUE}[POST-COMMIT]${NC} Generating coverage reports in background..."
 
 # Function to generate reports
@@ -65,6 +68,8 @@ generate_reports() {
 # Function to generate trend analysis
 generate_trend_analysis() {
     local TREND_REPORT="${REPORTS_DIR}/trend_analysis.txt"
+
+    touch "$TREND_REPORT"
     
     cat > "$TREND_REPORT" << EOF
 =================================================================
