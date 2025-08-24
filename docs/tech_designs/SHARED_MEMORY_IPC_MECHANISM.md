@@ -42,8 +42,17 @@ There are two fundamental types of shared memory, each with a distinct trade-off
 
 Shared memory is not inherently safe. Without a synchronization mechanism, you will encounter race conditions that lead to data corruption.
 
-* **The Solution**: Use a **Named POSIX Semaphore**.
-* **Why**: It is an OS-level primitive, making it language-agnostic. A C-based controller and a Rust-based agent can both open the same semaphore by name (e.g., `/my_app_semaphore`) to coordinate access, ensuring only one process is writing or reading at any given moment.
+Two classes of synchronization are required:
+
+1) Hot-path event writing (agent → rings):
+   - Use lock-free SPSC rings; no OS locks. Memory ordering: producer uses release on write pointer advance; consumer uses acquire on read.
+
+2) Control-plane ring-pool coordination (agent ↔ controller):
+   - Use lock-free SPSC queues in shared memory per lane:
+     - submit_q (agent→controller): ring indices to dump (index: on full; detail: on full AND marked).
+     - free_q (controller→agent): spare ring indices to activate.
+   - Control block carries atomic `active_ring_idx` per lane and metrics.
+   - Optional: a Named POSIX Semaphore or eventfd can be used to wake the controller’s drain thread from sleep; never in the hot path.
 
 ---
 

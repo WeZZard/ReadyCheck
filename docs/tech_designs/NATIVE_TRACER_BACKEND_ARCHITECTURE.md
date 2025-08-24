@@ -382,15 +382,15 @@ ThreadRegistry Layout (Shared Memory)
 
 ## Design Patterns
 
-### 1. Two-Lane Architecture Pattern
+### 1. Two-Lane Architecture Pattern (updated for M1)
 
 **Intent**: Minimize overhead while maintaining diagnostic capability
 
-**Implementation**:
+**Implementation** (M1 semantics):
 
-- Compact lane: Always captures minimal information
-- Detail lane: Captures rich information only during windows
-- Trigger-based transition between modes
+- Index lane (compact): Always-on capture to a rolling ring; persistence via dump-on-full with bounded ring-pool swap.
+- Detail lane (rich): Always-on capture to a rolling ring; persistence via dump-on-full-and-marked with bounded ring-pool swap. “Marked” is defined by the marking policy.
+- No enable/disable toggling for capture on the detail lane; windows are realized by dump triggers and ring snapshots.
 
 **Benefits**:
 
@@ -425,7 +425,7 @@ if (ring->read_pos != ring->write_pos) {
 
 **Intent**: Continuous monitoring with triggered detailed capture
 
-**States**:
+**States** (higher-level view; realized via ring-pool dump triggers in M1):
 
 - Idle: Minimal capture
 - Armed: Waiting for trigger
@@ -433,6 +433,21 @@ if (ring->read_pos != ring->write_pos) {
 - Pre/Post-roll: Context capture
 
 ### 4. Platform Abstraction Pattern
+### 5. Ring pool and swap protocol (new)
+
+**Intent**: Bound dump latency and memory while avoiding hot-path locks; isolate persistence cost to the controller process.
+
+**Per-lane design**:
+- Ring pool: 1 active + K spares (K small). Rings are fixed-size; each has a descriptor in the control block.
+- Agent (index lane): on full → submit active ring idx to controller; swap to spare if available; else continue with drop-oldest until a spare returns.
+- Agent (detail lane): set `marked_event_seen_since_last_dump` on any marked event; on full AND marked → submit + swap; clear marked flag; else continue with drop-oldest until spare returns and coalesce submissions.
+- Controller: poll submit queues; on ring idx → snapshot/dump → return ring idx to free pool; update dump metrics.
+
+**Sync**:
+- Control block holds `active_ring_idx`, `submit_q`, `free_q`, and metrics per lane; detail lane also holds the marked-event flag. Memory ordering is release (agent submit/swap) and acquire (controller pop/snapshot).
+
+**Guarantees**:
+- Fixed ring sizes bound dump time; bounded pool caps memory; index lane remains unaffected under dense marked events.
 
 **Intent**: Handle platform-specific requirements transparently
 

@@ -21,6 +21,9 @@ Deliver an end-to-end native-agent tracing MVP on macOS (Apple Silicon): spawn/a
 - Summarize prints totals, unique threads, top function IDs
 - Unique shared memory names (role+pid+session_id) used end-to-end; spawn/attach parameterization proven
 - Trace header includes pid and session_id
+- Ring-pool swap-and-dump protocol implemented for both lanes:
+  - Index: dump-on-full with bounded spares; persisted 100%
+  - Detail: dump-on-full-and-marked with bounded spares; windowed persistence
 - docs/GETTING_STARTED.md created and README updated to link to it
 - All tests pass; coverage 100% on newly added code
 

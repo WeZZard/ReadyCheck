@@ -127,6 +127,35 @@ collect_coverage() {
     fi
 }
 
+# Check if only documentation files were changed
+is_documentation_only() {
+    local changed_files
+    if git diff --cached --name-only &>/dev/null; then
+        # Pre-commit: check staged files
+        changed_files=$(git diff --cached --name-only)
+    elif git diff HEAD~1 --name-only &>/dev/null; then
+        # Post-commit: check last commit
+        changed_files=$(git diff HEAD~1 --name-only)
+    else
+        return 1  # No git context, assume not docs-only
+    fi
+    
+    # If no files changed, not documentation-only
+    if [[ -z "$changed_files" ]]; then
+        return 1
+    fi
+    
+    # Check if ALL changed files are documentation or non-code files
+    local non_doc_files=$(echo "$changed_files" | grep -v -E '\.(md|txt|rst|adoc|org)$' | \
+        grep -v -E '^(docs/|documentation/|README|LICENSE|CHANGELOG|AUTHORS|CONTRIBUTORS|\.gitignore|\.gitattributes)' || true)
+    
+    if [[ -z "$non_doc_files" ]]; then
+        return 0  # Only documentation files changed
+    else
+        return 1  # Has non-documentation changes
+    fi
+}
+
 # Check if any source files were changed
 has_source_changes() {
     local changed_files
@@ -239,13 +268,30 @@ main() {
     
     # For incremental mode, check if there are any source changes first
     if [[ "$MODE" == "incremental" ]]; then
+        # First check if ONLY documentation files were changed
+        if is_documentation_only; then
+            log_success "Only documentation files detected"
+            log_info "Skipping build, tests, and coverage for documentation-only changes"
+            echo -e "${GREEN}╔════════════════════════════════════════════════════════════╗${NC}"
+            echo -e "${GREEN}║          DOCUMENTATION-ONLY CHANGES DETECTED               ║${NC}"
+            echo -e "${GREEN}╠════════════════════════════════════════════════════════════╣${NC}"
+            echo -e "${GREEN}║  Only markdown/text files were modified.                   ║${NC}"
+            echo -e "${GREEN}║  Skipping unnecessary quality checks:                      ║${NC}"
+            echo -e "${GREEN}║  • Build - not needed for documentation                    ║${NC}"
+            echo -e "${GREEN}║  • Tests - not affected by documentation                   ║${NC}"
+            echo -e "${GREEN}║  • Coverage - no code changes to measure                   ║${NC}"
+            echo -e "${GREEN}╚════════════════════════════════════════════════════════════╝${NC}"
+            return 0
+        fi
+        
+        # Check if there are source code changes
         local source_changes=$(has_source_changes || echo "")
         if [[ -z "$source_changes" ]]; then
             log_success "No source code changes detected"
             log_info "Only configuration, documentation, or test files were modified"
             log_success "Skipping coverage requirements for non-source changes"
             
-            # Still run basic checks
+            # Still run basic checks for config/test changes
             build_all
             run_tests
             generate_report

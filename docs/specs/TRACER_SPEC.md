@@ -17,6 +17,10 @@ This document specifies the behavior and requirements of the ADA Tracer componen
 - Full coverage: By default, hook all resolvable functions in the target program and all currently loaded—and subsequently loaded—dynamic libraries (DSOs).
 - ATF: ADA Trace Format; directory containing length-delimited Protobuf `Event` stream and indexes (indexes may be minimal in MVP).
 
+### 3.1 Terminology: Marked events and marking policy (M1)
+- Marked event: an event that matches the current marking policy configured by the controller/agent. Marking does not reduce hook coverage; it annotates events of interest for detail persistence decisions.
+- Marking policy: a rule set (symbols, patterns, heuristics) defining which events are considered “marked.” The policy can be updated between runs; live updates are future work.
+
 ## 4. Platform and Mechanisms
 - macOS (MVP):
   - Mechanism: Frida Gum native (C/C++) hooks with a shared-memory ring buffer for hot-path logging.
@@ -88,9 +92,16 @@ This document specifies the behavior and requirements of the ADA Tracer componen
 - BP-001 (MUST) Sharded rings and priority lane
   - Use per-thread SPSC rings (L1) feeding an MPSC drain (L2). Provide a must-not-drop lane for crash/signal diagnostics.
 - BP-002 (MUST) Watermarks and bounded spill (no sampling)
-  - Enforce high/low watermarks per ring. Optionally use a single, preallocated spill ring for short bursts with a hard cap. Do not apply random sampling or quality shedding.
+  - Enforce high/low watermarks per ring. Use a bounded pool of fixed-size rings per lane to achieve bounded spill without sampling. Do not apply random sampling or quality shedding.
 - BP-003 (MUST) Drop policy and accounting
   - If overflow persists, drop-oldest on the lowest-priority lane only, and record explicit reason codes (e.g., ring full, encoder lag). Maintain bounded latency.
+
+### 7.1 Lane-specific dump and ring-pool semantics (M1)
+- Index lane (always-on persistence):
+  - Use a bounded ring-pool: 1 active + K_index spares (small, e.g., 2–3). When the active ring becomes full, the agent submits the ring to the controller and atomically swaps to a spare. The controller dumps the submitted ring and returns it to the free pool. If the pool is exhausted, the agent continues with drop-oldest until a spare returns. Index lane must not block.
+- Detail lane (always-on capture, windowed persistence):
+  - Use a bounded ring-pool: 1 active + K_detail spares (small, e.g., 1–2). Dump is triggered only when both conditions hold: (a) the active detail ring is full and (b) at least one marked event has been seen since the last dump. On trigger, the agent submits the ring and swaps to a spare; the controller dumps and returns the ring. If the pool is exhausted, the agent continues with drop-oldest until a spare returns and coalesces further submissions.
+- Metrics: track `*_dumps_total`, `*_dump_bytes_last`, `*_dump_ms_last`, `*_pool_free_min`, `*_pool_exhausted_count` for both lanes.
 - BP-004 (MUST) Capacity planning
   - Support configuration of target peak rate (Rp) and burst window (Tb). Pre-size and pre-fault rings accordingly; document computed event capacity K = floor(R / s).
 
@@ -103,8 +114,22 @@ This document specifies the behavior and requirements of the ADA Tracer componen
   - Append to preallocated segments with configurable flush policy: off, interval_ms, bytes, or on segment rotate. Avoid synchronous fsync on every batch; expose a safe mode separately.
 - TD-004 (SHOULD) Offline transcode
   - Optionally write compact fixed records to WAL and transcode to Protobuf offline to decouple hot-path cost.
-- TD-005 (MUST) Two-lane persistence
-  - Maintain an always-on compact index lane (time, functionId, tid, kind) and a windowed detail lane (regs/stack) controlled by triggers and key-symbol membership. Record window metadata (pre/post roll, triggers, key-symbol version).
+- TD-005 (MUST) Two-lane persistence (M1 semantics)
+  - Index lane: always-on rolling ring with dump-on-full using a bounded ring-pool swap protocol.
+  - Detail lane: always-on rolling ring with dump-on-full-and-marked using a bounded ring-pool swap protocol; “marked” is determined by the marking policy. This realizes windowed persistence without enabling/disabling capture.
+  - Rings are fixed-size to bound dump time; the pool bounds memory usage.
+
+### 8.1 Control block and memory model for ring-pool (M1)
+- Control block (shared memory) includes for each lane:
+  - `RingDescriptor rings[N]` containing base address, capacity, record size, id
+  - `active_ring_idx` (atomic u32)
+  - `submit_q` (agent→controller SPSC queue of ring indices) and `free_q` (controller→agent SPSC queue)
+  - Detail-only: `marked_event_seen_since_last_dump` (atomic bool)
+  - Metrics counters as listed in §7.1
+- Memory ordering:
+  - Agent: release when pushing to `submit_q` and when swapping `active_ring_idx`
+  - Controller: acquire on `submit_q` pop and prior to snapshotting ring headers/pointers
+  - Event writes use SPSC ring discipline; no OS locks on the hot path
 
 ## 9. Observability and Metrics (OB)
 - OB-001 (MUST) Metrics
