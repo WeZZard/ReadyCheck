@@ -309,4 +309,10 @@ mod tests {
     fn test_agent_loader() {
         run_c_test("test_agent_loader").expect("Agent loader test failed");
     }
+
+    #[test]
+    #[serial]
+    fn test_baseline_hooks() {
+        run_c_test("test_baseline_hooks").expect("Baseline hooks test failed");
+    }
 }

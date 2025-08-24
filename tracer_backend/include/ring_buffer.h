@@ -13,6 +13,7 @@ extern "C" {
 typedef struct {
     RingBufferHeader* header;
     void* buffer;
+    // Each event is a fixed size
     size_t event_size;
     size_t buffer_size;
 } RingBuffer;

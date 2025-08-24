@@ -379,6 +379,27 @@ if(BUILD_TESTING)
     )
     
     # Discover tests for CTest
+    # Integration test for baseline hooks
+    add_executable(test_baseline_hooks
+        tests/integration/test_baseline_hooks.cpp
+        tests/test_main.cpp
+    )
+    
+    target_include_directories(test_baseline_hooks
+        PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/include
+    )
+    
+    target_link_libraries(test_baseline_hooks
+        PRIVATE
+            GTest::gtest
+            GTest::gmock
+            tracer_controller
+            tracer_utils
+            ${FRIDA_CORE_LIB}
+            Threads::Threads
+    )
+    
     gtest_discover_tests(test_ring_buffer)
     gtest_discover_tests(test_ring_buffer_attach)
     gtest_discover_tests(test_shared_memory)
@@ -386,17 +407,19 @@ if(BUILD_TESTING)
     gtest_discover_tests(test_controller_full_lifecycle)
     gtest_discover_tests(test_integration)
     gtest_discover_tests(test_agent_loader)
+    gtest_discover_tests(test_baseline_hooks)
     
     # Add a custom target to run all GTests with nice output
     add_custom_target(run_gtests
-        COMMAND env ADA_BUILD_PROFILE=${ADA_BUILD_PROFILE} ADA_WORKSPACE_ROOT=${ADA_WORKSPACE_ROOT} test_ring_buffer --gtest_color=yes
-        COMMAND env ADA_BUILD_PROFILE=${ADA_BUILD_PROFILE} ADA_WORKSPACE_ROOT=${ADA_WORKSPACE_ROOT} test_ring_buffer_attach --gtest_color=yes
-        COMMAND env ADA_BUILD_PROFILE=${ADA_BUILD_PROFILE} ADA_WORKSPACE_ROOT=${ADA_WORKSPACE_ROOT} test_shared_memory --gtest_color=yes
-        COMMAND env ADA_BUILD_PROFILE=${ADA_BUILD_PROFILE} ADA_WORKSPACE_ROOT=${ADA_WORKSPACE_ROOT} test_spawn_method --gtest_color=yes
-        COMMAND env ADA_BUILD_PROFILE=${ADA_BUILD_PROFILE} ADA_WORKSPACE_ROOT=${ADA_WORKSPACE_ROOT} test_controller_full_lifecycle --gtest_color=yes
-        COMMAND env ADA_BUILD_PROFILE=${ADA_BUILD_PROFILE} ADA_WORKSPACE_ROOT=${ADA_WORKSPACE_ROOT} test_integration --gtest_color=yes
-        COMMAND env ADA_BUILD_PROFILE=${ADA_BUILD_PROFILE} ADA_WORKSPACE_ROOT=${ADA_WORKSPACE_ROOT} test_agent_loader --gtest_color=yes
-        DEPENDS test_ring_buffer test_ring_buffer_attach test_shared_memory test_spawn_method test_controller_full_lifecycle test_integration test_agent_loader
+        COMMAND env ADA_BUILD_PROFILE=$<CONFIG> ADA_WORKSPACE_ROOT=${ADA_WORKSPACE_ROOT} test_ring_buffer --gtest_color=yes
+        COMMAND env ADA_BUILD_PROFILE=$<CONFIG> ADA_WORKSPACE_ROOT=${ADA_WORKSPACE_ROOT} test_ring_buffer_attach --gtest_color=yes
+        COMMAND env ADA_BUILD_PROFILE=$<CONFIG> ADA_WORKSPACE_ROOT=${ADA_WORKSPACE_ROOT} test_shared_memory --gtest_color=yes
+        COMMAND env ADA_BUILD_PROFILE=$<CONFIG> ADA_WORKSPACE_ROOT=${ADA_WORKSPACE_ROOT} test_spawn_method --gtest_color=yes
+        COMMAND env ADA_BUILD_PROFILE=$<CONFIG> ADA_WORKSPACE_ROOT=${ADA_WORKSPACE_ROOT} test_controller_full_lifecycle --gtest_color=yes
+        COMMAND env ADA_BUILD_PROFILE=$<CONFIG> ADA_WORKSPACE_ROOT=${ADA_WORKSPACE_ROOT} test_integration --gtest_color=yes
+        COMMAND env ADA_BUILD_PROFILE=$<CONFIG> ADA_WORKSPACE_ROOT=${ADA_WORKSPACE_ROOT} test_agent_loader --gtest_color=yes
+        COMMAND env ADA_BUILD_PROFILE=$<CONFIG> ADA_WORKSPACE_ROOT=${ADA_WORKSPACE_ROOT} test_baseline_hooks --gtest_color=yes
+        DEPENDS test_ring_buffer test_ring_buffer_attach test_shared_memory test_spawn_method test_controller_full_lifecycle test_integration test_agent_loader test_baseline_hooks
         WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
     )
 endif()

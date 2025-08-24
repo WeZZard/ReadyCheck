@@ -25,8 +25,28 @@ int frida_controller_detach(FridaController* controller);
 int frida_controller_resume(FridaController* controller);
 int frida_controller_pause(FridaController* controller);
 
-// Hook installation
+/**
+ * @brief Install hooks into the target process
+ * 
+ * @param controller the FridaController instance
+ * @return int 0 on success, -1 on failure
+ *
+ * The agent library is searched for in the paths specified by an 
+ * environment variable <code>ADA_AGENT_RPATH_SEARCH_PATHS</code>.
+ *
+ * <code>ADA_AGENT_RPATH_SEARCH_PATHS</code> is a colon-separated list of
+ * paths to search for the agent library.
+ *
+ */
 int frida_controller_install_hooks(FridaController* controller);
+
+/**
+ * @brief Inject the agent into the target process
+ * 
+ * @param controller the FridaController instance
+ * @param agent_path the path to the agent library
+ * @return int 0 on success, -1 on failure
+ */
 int frida_controller_inject_agent(FridaController* controller, const char* agent_path);
 
 // Flight recorder control

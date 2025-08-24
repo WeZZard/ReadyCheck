@@ -19,6 +19,8 @@ typedef struct __SharedMemory {
     bool is_creator;
 } __SharedMemory;
 
+#define DEBUG_LOG(...) fprintf(stderr, __VA_ARGS__)
+
 // Simple 32-bit FNV-1a hash for short role identifiers
 static uint32_t shm_hash32(const char* s)
 {
@@ -65,38 +67,27 @@ static void shared_memory_build_name(char* dst, size_t dst_len, const char* role
     bool disable_unique = (env != NULL && env[0] != '\0' && env[0] != '0');
     if (disable_unique) {
         snprintf(dst, dst_len, "%s_%s", ADA_SHM_PREFIX, role);
-#ifdef __APPLE__
-        // POSIX shared memory names are limited (typically 31 chars on Darwin including the leading '/')
-        // Our caller will prepend '/', so keep dst <= 30. If too long, fall back to hashed role.
-        if (strlen(dst) > 30) {
-            uint32_t rh = shm_hash32(role);
-            snprintf(dst, dst_len, "%s_r%04x", ADA_SHM_PREFIX, (unsigned) (rh & 0xFFFFu));
-        }
-#endif
         return;
     }
     if (pid == 0) {
         pid = getpid();
     }
     if (session_id == 0) {
-        fprintf(stderr, "Invalid session id: %u\n", session_id);
+        DEBUG_LOG("Invalid session id: %u\n", session_id);
         return;
     }
-    snprintf(dst, dst_len, "%s_%s_%d_%08x", ADA_SHM_PREFIX, role, (int) pid, (unsigned int) session_id);
-#ifdef __APPLE__
-    if (strlen(dst) > 30) {
-        uint32_t rh = shm_hash32(role);
-        // Use hashed role to stay within limits
-        snprintf(dst, dst_len, "%s_r%04x_%d_%08x", ADA_SHM_PREFIX, (unsigned) (rh & 0xFFFFu), (int) pid, (unsigned int) session_id);
-    }
-#endif
+    // We don't have to consider string length limit here; 
+    // It is a hard-coded 256-character string.
+    snprintf(dst, dst_len, "/%s_%s_0x%x_0x%x", ADA_SHM_PREFIX, role, pid, session_id);
 }
 
 
 static SharedMemoryRef shared_memory_create(const char* name, size_t size) {
+    DEBUG_LOG("Creating shared memory: %s, size: %zu\n", name, size);
+
     SharedMemoryRef shm = calloc(1, sizeof(__SharedMemory));
     if (!shm) {
-        fprintf(stderr, "Failed to allocate memory for SharedMemory\n");
+        DEBUG_LOG("Failed to allocate memory for SharedMemory\n");
         return NULL;
     }
     
@@ -110,14 +101,14 @@ static SharedMemoryRef shared_memory_create(const char* name, size_t size) {
     // Create shared memory object
     shm->fd = shm_open(shm->name, O_CREAT | O_RDWR, 0666);
     if (shm->fd == -1) {
-        fprintf(stderr, "Failed to create shared memory object: %s\n", strerror(errno));
+        DEBUG_LOG("Failed to create shared memory object: %s\n", strerror(errno));
         free(shm);
         return NULL;
     }
     
     // Set size
     if (ftruncate(shm->fd, size) == -1) {
-        fprintf(stderr, "Failed to set size (%zu) of shared memory object: %s\n", size, strerror(errno));
+        DEBUG_LOG("Failed to set size (%zu) of shared memory object: %s\n", size, strerror(errno));
         close(shm->fd);
         shm_unlink(shm->name);
         free(shm);
@@ -127,7 +118,7 @@ static SharedMemoryRef shared_memory_create(const char* name, size_t size) {
     // Map memory
     shm->address = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, shm->fd, 0);
     if (shm->address == MAP_FAILED) {
-        fprintf(stderr, "Failed to map memory: %s\n", strerror(errno));
+        DEBUG_LOG("Failed to map memory: %s\n", strerror(errno));
         close(shm->fd);
         shm_unlink(shm->name);
         free(shm);
@@ -140,6 +131,7 @@ static SharedMemoryRef shared_memory_create(const char* name, size_t size) {
     // Initialize to zero
     memset(shm->address, 0, size);
     
+    DEBUG_LOG("Created shared memory: %s\n", shm->name);
     return shm;
 }
 
@@ -157,7 +149,7 @@ static SharedMemoryRef shared_memory_open(const char* name, size_t size) {
     // Open existing shared memory
     shm->fd = shm_open(shm->name, O_RDWR, 0666);
     if (shm->fd == -1) {
-        fprintf(stderr, "Failed to open shared memory object (%s): %s\n", shm->name, strerror(errno));
+        DEBUG_LOG("Failed to open shared memory object (%s): %s\n", shm->name, strerror(errno));
         free(shm);
         return NULL;
     }
@@ -165,7 +157,7 @@ static SharedMemoryRef shared_memory_open(const char* name, size_t size) {
     // Map memory
     shm->address = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, shm->fd, 0);
     if (shm->address == MAP_FAILED) {
-        fprintf(stderr, "Failed to map memory: %s\n", strerror(errno));
+        DEBUG_LOG("Failed to map memory: %s\n", strerror(errno));
         close(shm->fd);
         free(shm);
         return NULL;
@@ -174,6 +166,7 @@ static SharedMemoryRef shared_memory_open(const char* name, size_t size) {
     shm->size = size;
     shm->is_creator = false;
     
+    DEBUG_LOG("Opened shared memory: %s\n", shm->name);
     return shm;
 }
 
@@ -183,7 +176,7 @@ SharedMemoryRef shared_memory_create_unique(const char* role, pid_t pid, uint32_
     memset(name, 0, sizeof(name));
     shared_memory_build_name(name, sizeof(name), role, pid, session_id);
     if (strlen(name) == 0) {
-        fprintf(stderr, "Failed to build name for shared memory\n");
+        DEBUG_LOG("Failed to build name for shared memory\n");
         return NULL;
     }
     if (out_name && out_name_len > 0) {
@@ -198,7 +191,7 @@ SharedMemoryRef shared_memory_open_unique(const char* role, pid_t pid, uint32_t 
     memset(name, 0, sizeof(name));
     shared_memory_build_name(name, sizeof(name), role, pid, session_id);
     if (strlen(name) == 0) {
-        fprintf(stderr, "Failed to build name for shared memory\n");
+        DEBUG_LOG("Failed to build name for shared memory\n");
         return NULL;
     }
     return shared_memory_open(name, size);
@@ -206,9 +199,11 @@ SharedMemoryRef shared_memory_open_unique(const char* role, pid_t pid, uint32_t 
 
 void shared_memory_destroy(SharedMemoryRef shm) {
     if (!shm) {
-        fprintf(stderr, "SharedMemory is NULL\n");
+        DEBUG_LOG("SharedMemory is NULL\n");
         return;
     }
+
+    DEBUG_LOG("Destroying shared memory: %s\n", shm->name);
     
     if (shm->address && shm->address != MAP_FAILED) {
         munmap(shm->address, shm->size);
@@ -226,13 +221,13 @@ void shared_memory_destroy(SharedMemoryRef shm) {
     free(shm);
 }
 
-int shared_memory_unlink(const char* name) {
-    char full_name[256];
-    if (name[0] != '/') {
-        snprintf(full_name, sizeof(full_name), "/%s", name);
-        return shm_unlink(full_name);
+int shared_memory_unlink(SharedMemoryRef shm) {
+    if (!shm) {
+        DEBUG_LOG("SharedMemory is NULL\n");
+        return -1;
     }
-    return shm_unlink(name);
+    DEBUG_LOG("Unlinking shared memory: %s\n", shm->name);
+    return shm_unlink(shm->name);
 }
 
 // MARK: - Accessing Shared Memory Properties

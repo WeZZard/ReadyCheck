@@ -340,11 +340,11 @@ All code in this repository must be covered by automated tests and measured with
 
 ### Programming-Language-Specific Enforcement
 
-| Language | Toolchain | Build System                          | Package Manager   | Test Coverage Tool | Testing Framework |
-| -------- | --------- | ------------------------------------- | ----------------- | ------------------ | ----------------- |
-| Rust     | stable    | Cargo                                 | Ccargo + crates.i | cargo-llvm-cov     | cargo test        |
-| C/C++    | clang     | CMake + clang (orchestrated by Cargo) | CMake             | llvm-cov           | Google Test       |
-| Python   | maturin   | maturin (orchestrated by Cargo)       | pip               | pytest-cov         | pytest            |
+| Language | Toolchain | Build System                          | Package Manager   | Test Coverage Tool | Testing Framework                    |
+| -------- | --------- | ------------------------------------- | ----------------- | ------------------ | ------------------------------------ |
+| Rust     | stable    | Cargo                                 | Ccargo + crates.i | cargo-llvm-cov     | cargo test                           |
+| C/C++    | clang     | CMake + clang (orchestrated by Cargo) | CMake             | llvm-cov           | Google Test (orchestrated by Cargo)  |
+| Python   | maturin   | maturin (orchestrated by Cargo)       | pip               | pytest-cov         | pytest (orchestrated by Cargo)       |
 
 ### Third-Party Dependencies
 

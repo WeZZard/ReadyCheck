@@ -63,7 +63,15 @@ TEST_F(AgentLoaderTest, agent_loader__load_and_init__then_hooks_installed) {
     
     // 4. Install hooks (this loads the agent)
     printf("  4. Installing hooks (loading agent)...\n");
+    const char* old_rpath = getenv("ADA_AGENT_RPATH_SEARCH_PATHS");
+    setenv("ADA_AGENT_RPATH_SEARCH_PATHS", ADA_WORKSPACE_ROOT "/target/" ADA_BUILD_PROFILE "/tracer_backend/lib", 1);
     result = frida_controller_install_hooks(controller);
+    if (old_rpath) {
+        setenv("ADA_AGENT_RPATH_SEARCH_PATHS", old_rpath, 1);
+    } else {
+        unsetenv("ADA_AGENT_RPATH_SEARCH_PATHS");
+    }
+
     if (result != 0) {
         printf("  ✗ Failed to install hooks/load agent\n");
         kill(agent_pid, SIGTERM);
@@ -117,10 +125,6 @@ TEST_F(AgentLoaderTest, agent_loader__missing_library__then_error_reported) {
     printf("[LOADER] missing_library → error reported\n");
     
     // Set environment to force bad path
-    setenv("ADA_BUILD_TYPE", "nonexistent", 1);
-    const char* pwd = getenv("PWD");
-    setenv("PWD", "/", 1);
-    
     FridaController* controller = frida_controller_create("/tmp/ada_test");
     ASSERT_NE(controller, nullptr);
     
@@ -135,7 +139,6 @@ TEST_F(AgentLoaderTest, agent_loader__missing_library__then_error_reported) {
     if (result != 0) {
         printf("  ⚠️  Spawn failed\n");
         frida_controller_destroy(controller);
-        unsetenv("ADA_BUILD_TYPE");
         GTEST_SKIP() << "Spawn failed";
         return;
     }
@@ -146,7 +149,15 @@ TEST_F(AgentLoaderTest, agent_loader__missing_library__then_error_reported) {
     
     // Try to install hooks - should fail
     printf("  Testing missing library handling...\n");
+    
+    const char* old_rpath = getenv("ADA_AGENT_RPATH_SEARCH_PATHS");
+    setenv("ADA_AGENT_RPATH_SEARCH_PATHS", "/nonexistent", 1);
     result = frida_controller_install_hooks(controller);
+    if (old_rpath) {
+        setenv("ADA_AGENT_RPATH_SEARCH_PATHS", old_rpath, 1);
+    } else {
+        unsetenv("ADA_AGENT_RPATH_SEARCH_PATHS");
+    }
     
     if (result != 0) {
         printf("  ✓ Correctly reported missing library error\n");
@@ -160,8 +171,6 @@ TEST_F(AgentLoaderTest, agent_loader__missing_library__then_error_reported) {
     kill(pid, SIGTERM);
     waitpid(pid, nullptr, 0);
     frida_controller_destroy(controller);
-    unsetenv("ADA_BUILD_TYPE");
-    setenv("PWD", pwd, 1);
     
     printf("  ✓ Error handling test completed\n");
 }

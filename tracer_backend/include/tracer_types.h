@@ -95,6 +95,8 @@ typedef struct {
     uint64_t trigger_time;
     uint32_t index_lane_enabled;
     uint32_t detail_lane_enabled;
+    uint32_t capture_stack_snapshot;  // Enable 128-byte stack capture
+    uint32_t _reserved[7];  // Reserved for future flags
 } ControlBlock;
 
 // Statistics

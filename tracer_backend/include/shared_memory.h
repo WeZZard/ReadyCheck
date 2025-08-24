@@ -66,7 +66,7 @@ SharedMemoryRef shared_memory_open_unique(const char* role, pid_t pid, uint32_t 
 void shared_memory_destroy(SharedMemoryRef shm);
 
 // Unlink shared memory (remove from system)
-int shared_memory_unlink(const char* name);
+int shared_memory_unlink(SharedMemoryRef shm);
 
 #pragma mark - Accessing Shared Memory Properties
 

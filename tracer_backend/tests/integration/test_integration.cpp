@@ -57,7 +57,14 @@ TEST_F(IntegrationTest, controller__spawn_and_attach__then_hooks_installed) {
     printf("  ✓ Attached to process\n");
     
     // Install hooks
+    const char* old_rpath = getenv("ADA_AGENT_RPATH_SEARCH_PATHS");
+    setenv("ADA_AGENT_RPATH_SEARCH_PATHS", ADA_WORKSPACE_ROOT "/target/" ADA_BUILD_PROFILE "/tracer_backend/lib", 1);
     result = frida_controller_install_hooks(controller);
+    if (old_rpath) {
+        setenv("ADA_AGENT_RPATH_SEARCH_PATHS", old_rpath, 1);
+    } else {
+        unsetenv("ADA_AGENT_RPATH_SEARCH_PATHS");
+    }
     ASSERT_EQ(result, 0);
     printf("  ✓ Installed hooks\n");
     

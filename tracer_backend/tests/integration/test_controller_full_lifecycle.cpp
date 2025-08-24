@@ -125,7 +125,14 @@ TEST_F(ControllerFullLifecycleTest, controller__spawn_attach_resume__then_full_l
     
     // 5. Install hooks (will use minimal script since native agent loading is placeholder)
     printf("  5. Installing hooks...\n");
+    const char* old_rpath = getenv("ADA_AGENT_RPATH_SEARCH_PATHS");
+    setenv("ADA_AGENT_RPATH_SEARCH_PATHS", ADA_WORKSPACE_ROOT "/target/" ADA_BUILD_PROFILE "/tracer_backend/lib", 1);
     result = frida_controller_install_hooks(controller);
+    if (old_rpath) {
+        setenv("ADA_AGENT_RPATH_SEARCH_PATHS", old_rpath, 1);
+    } else {
+        unsetenv("ADA_AGENT_RPATH_SEARCH_PATHS");
+    }
     ASSERT_EQ(result, 0);
     
     // 6. Test resume (should only use appropriate method, no double resume)

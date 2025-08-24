@@ -49,6 +49,7 @@ TEST_F(SpawnMethodTest, controller__spawn_attach_resume__then_process_runs) {
     
     if (result != 0) {
         printf("  ⚠️  Spawn failed - skipping test (may need to build test_cli first)\n");
+        frida_controller_destroy(controller);
         GTEST_SKIP();
         return;
     }
@@ -121,6 +122,7 @@ TEST_F(SpawnMethodTest, controller__state_tracking__then_transitions_correctly) 
         waitpid(pid, nullptr, 0);
     } else {
         printf("  ⚠️  Spawn failed - skipping state transition tests\n");
+        frida_controller_destroy(controller);
         GTEST_SKIP();
     }
     

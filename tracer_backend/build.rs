@@ -148,6 +148,7 @@ fn main() {
         ("build/test_controller_full_lifecycle", "test/test_controller_full_lifecycle"),
         ("build/test_integration", "test/test_integration"),
         ("build/test_agent_loader", "test/test_agent_loader"),
+        ("build/test_baseline_hooks", "test/test_baseline_hooks"),
     ];
     
     for (src_path, dst_path) in binaries {

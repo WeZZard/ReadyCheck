@@ -174,15 +174,19 @@ FridaController* frida_controller_create(const char* output_dir) {
     uint32_t controller_pid = shared_memory_get_pid();
     uint32_t session_id = shared_memory_get_session_id();
     
+    g_debug("Creating shared memory with controller_pid: %u, session_id: %u\n", controller_pid, session_id);
     controller->shm_control = shared_memory_create_unique(ADA_ROLE_CONTROL,
                                                          controller_pid, session_id,
                                                          CONTROL_BLOCK_SIZE, NULL, 0);
+    g_debug("Created control block shared memory: %s\n", shared_memory_get_name(controller->shm_control));
     controller->shm_index = shared_memory_create_unique(ADA_ROLE_INDEX,
                                                        controller_pid, session_id,
                                                        INDEX_LANE_SIZE, NULL, 0);
+    g_debug("Created index lane shared memory: %s\n", shared_memory_get_name(controller->shm_index));
     controller->shm_detail = shared_memory_create_unique(ADA_ROLE_DETAIL,
                                                         controller_pid, session_id,
                                                         DETAIL_LANE_SIZE, NULL, 0);
+    g_debug("Created detail lane shared memory: %s\n", shared_memory_get_name(controller->shm_detail));
     
     if (!controller->shm_control || !controller->shm_index || !controller->shm_detail) {
         frida_controller_destroy(controller);
@@ -195,7 +199,7 @@ FridaController* frida_controller_create(const char* output_dir) {
     controller->control_block->process_state = PROCESS_STATE_INITIALIZED;
     controller->control_block->flight_state = FLIGHT_RECORDER_IDLE;
     controller->control_block->index_lane_enabled = 1;
-    controller->control_block->detail_lane_enabled = 0;
+    controller->control_block->detail_lane_enabled = 1;
     controller->control_block->pre_roll_ms = 1000;
     controller->control_block->post_roll_ms = 1000;
     
@@ -274,6 +278,7 @@ int frida_controller_spawn_suspended(FridaController* controller,
                                      const char* path,
                                      char* const argv[],
                                      uint32_t* out_pid) {
+    printf("[Controller] Spawning process: %s\n", path);
     if (!controller || !path) return -1;
     
     controller->state = PROCESS_STATE_SPAWNING;
@@ -295,33 +300,48 @@ int frida_controller_spawn_suspended(FridaController* controller,
     uint32_t sid = shared_memory_get_session_id();
     char sid_hex[16];
     snprintf(sid_hex, sizeof(sid_hex), "%08x", (unsigned int) sid);
-    pid_t host_pid = getpid();
+    pid_t host_pid = shared_memory_get_pid();
     char host_pid_str[32];
     snprintf(host_pid_str, sizeof(host_pid_str), "%d", (int) host_pid);
-    size_t envc = 0;
-    for (char **ep = environ; ep && *ep; ep++) envc++;
-    char **envp = (char **) calloc(envc + 3, sizeof(char *));
-    if (envp) {
-        for (size_t i = 0; i < envc; i++) envp[i] = strdup(environ[i]);
-        char varbuf1[64];
-        snprintf(varbuf1, sizeof(varbuf1), "ADA_SHM_SESSION_ID=%s", sid_hex);
-        envp[envc] = strdup(varbuf1);
-        char varbuf2[64];
-        snprintf(varbuf2, sizeof(varbuf2), "ADA_SHM_HOST_PID=%s", host_pid_str);
-        envp[envc + 1] = strdup(varbuf2);
-        frida_spawn_options_set_env(options, (gchar **) envp, (gint) (envc + 2));
-    }
 
+    char varbuf1[64];
+    snprintf(varbuf1, sizeof(varbuf1), "ADA_SHM_SESSION_ID=%s", sid_hex);
+    char varbuf2[64];
+    snprintf(varbuf2, sizeof(varbuf2), "ADA_SHM_HOST_PID=%s", host_pid_str);
+
+    // A clean and controlled envp is important to prevent the spawned
+    // process form crashing the dynamic link editing 
+    // stage (dyld for macOS).
+    //
+    // Potential issues if we receive any envp:
+    //
+    // - Passing a malformed envp (missing the final NULL) or a 
+    //   non-UTF8/unterminated string can crash dyld immediately.
+    // - Overriding everything with a minimal env and forgetting 
+    //   essentials can trip early frameworks. Keep at least: PATH, HOME,
+    //   SHELL, TMPDIR, __CF_USER_TEXT_ENCODING, and whatever the app
+    //   expects.
+    // - Any stray/forbidden DYLD_* variables (e.g., DYLD_INSERT_LIBRARIES)
+    //   on hardened or restricted targets can cause early failures.
+
+    const char *envp[] = {
+        g_strdup_printf("PATH=%s", g_getenv("PATH")),
+        g_strdup_printf("HOME=%s", g_get_home_dir()),
+        g_strdup_printf("__CF_USER_TEXT_ENCODING=%s", g_getenv("__CF_USER_TEXT_ENCODING") ?: "0x1F5:0x0:0x0"),
+        varbuf1,
+        varbuf2,
+        NULL
+    };
+    frida_spawn_options_set_envp(options, (gchar **) envp, 5);
+
+    frida_spawn_options_set_stdio(options, FRIDA_STDIO_INHERIT);
+    
     // Frida’s spawn-suspended flow is designed to allow attach + hook 
     // before first instruction, then frida_device_resume_sync
     guint pid = frida_device_spawn_sync(controller->device, path, options, NULL,
                                         &error);
     g_object_unref(options);
-    if (envp) {
-        for (size_t i = 0; i < envc + 2; i++) free(envp[i]);
-        free(envp);
-    }
-
+    
     if (error) {
       g_printerr("Failed to spawn: %s\n", error->message);
       g_error_free(error);
@@ -375,8 +395,6 @@ int frida_controller_install_hooks(FridaController* controller) {
     // Compute absolute path to the agent library using an RPATH-like mechanism
     char agent_path[1024];
     memset(agent_path, 0, sizeof(agent_path));
-    const char* build_type = getenv("ADA_BUILD_TYPE");
-    if (!build_type) build_type = "debug";  // default to debug
 
 #ifdef __APPLE__
     const char* lib_basename = "libfrida_agent.dylib";
@@ -384,8 +402,8 @@ int frida_controller_install_hooks(FridaController* controller) {
     const char* lib_basename = "libfrida_agent.so";
 #endif
 
-    // 1) Check ADA_AGENT_RPATH (colon-separated search paths)
-    const char* rpath = getenv("ADA_AGENT_RPATH");
+    // 1) Check ADA_AGENT_RPATH_SEARCH_PATHS (colon-separated search paths)
+    const char* rpath = getenv("ADA_AGENT_RPATH_SEARCH_PATHS");
     gboolean found = FALSE;
     if (rpath && *rpath) {
         const char* p = rpath;
@@ -393,37 +411,19 @@ int frida_controller_install_hooks(FridaController* controller) {
             const char* colon = strchr(p, ':');
             if (colon) {
                 snprintf(agent_path, sizeof(agent_path), "%.*s/%s", (int)(colon - p), p, lib_basename);
-                printf("[Controller] Trying agent path: %s\n", agent_path);
+                printf("[Controller] Trying agent path based on rpath: %s\n", agent_path);
                 p = colon + 1;
             } else {
                 snprintf(agent_path, sizeof(agent_path), "%s/%s", p, lib_basename);
-                printf("[Controller] Trying agent path: %s\n", agent_path);
+                printf("[Controller] Trying agent path based on rpath: %s\n", agent_path);
                 p = NULL;
             }
             if (access(agent_path, F_OK) == 0) { found = TRUE; break; }
         }
     }
 
-    // 3) Search as if $PWD is the workspace root
     if (!found) {
-        snprintf(agent_path, sizeof(agent_path),
-                 "%s/target/%s/tracer_backend/lib/%s",
-                 getenv("PWD") ? getenv("PWD") : ".", build_type, lib_basename);
-        printf("[Controller] Trying agent path: %s\n", agent_path);
-        if (access(agent_path, F_OK) == 0) found = TRUE;
-    }
-
-    // 3) Search as if $PWD is the test product directory
-    if (!found) {
-        snprintf(agent_path, sizeof(agent_path),
-                 "%s/../lib/%s",
-                 getenv("PWD") ? getenv("PWD") : ".", lib_basename);
-        printf("[Controller] Trying agent path: %s\n", agent_path);
-        if (access(agent_path, F_OK) == 0) found = TRUE;
-    }
-
-    if (!found) {
-        fprintf(stderr, "[Controller] Agent library not found (set ADA_AGENT_RPATH or build the agent)\n");
+        fprintf(stderr, "[Controller] Agent library not found (ADA_AGENT_RPATH_SEARCH_PATHS = \"%s\")\n", rpath);
         return -1;
     }
     
@@ -679,18 +679,18 @@ static void on_detached(FridaSession* session, FridaSessionDetachReason reason,
 
 static void on_message(FridaScript* script, const gchar* message,
                        GBytes* data, gpointer user_data) {
-    g_print("Script message: %s\n", message);
+    g_debug("Script message: %s\n", message);
 }
 
 // Drain thread
 static void* drain_thread_func(void* arg) {
-    g_print("Drain thread started\n");
+    g_debug("Drain thread started\n");
     FridaController* controller = (FridaController*)arg;
     IndexEvent index_events[1000];
     DetailEvent detail_events[100];
-    g_print("Drain thread initialized\n");
+    g_debug("Drain thread initialized\n");
     while (controller->drain_running) {
-        g_print("Drain thread running\n");
+        g_debug("Drain thread running\n");
         // Drain index lane
         size_t index_count = ring_buffer_read_batch(controller->index_ring, 
                                                     index_events, 1000);
@@ -724,6 +724,6 @@ static void* drain_thread_func(void* arg) {
         // Sleep for 100ms
         usleep(100000);
     }
-    g_print("Drain thread exiting\n");
+    g_debug("Drain thread exiting\n");
     return NULL;
 }
