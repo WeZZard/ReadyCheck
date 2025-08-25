@@ -8,18 +8,21 @@
 
 The ADA Tracer uses a **two-lane architecture** inspired by aircraft flight recorders. Think of it like having two separate recording devices running simultaneously:
 
-1. **Index Lane**: Lightweight, always-on recording
-2. **Detail Lane**: Heavy, on-demand recording
+1. **Index Lane**: Lightweight, always-on recording with continuous persistence
+2. **Detail Lane**: Heavy, always-on recording with windowed persistence
 
 ```
 Timeline:  [=====================================>]
            
-Index Lane: ●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●  (continuous)
-Detail Lane: ............██████████.............  (only when triggered)
+Index Lane: ●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●  (continuous capture & dump)
+Detail Lane: ●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●  (continuous capture)
+             ............██████████.............  (windowed persistence)
                          ↑        ↑
-                      trigger  trigger
-                       fires    stops
+                      marked    marked
+                      event     event
 ```
+
+**Key Insight**: Both lanes are ALWAYS capturing data. The difference is when they persist (dump) to storage.
 
 ## What is an "Event"?
 
@@ -94,8 +97,8 @@ Event 7: [timestamp: 1600, function: free,    thread: 1, type: CALL]
 Event 8: [timestamp: 1700, function: free,    thread: 1, type: RETURN]
 ```
 
-#### In Detail Lane (ONLY IF TRIGGERED):
-Say we set a trigger on `strcpy` (because it's dangerous):
+#### In Detail Lane (ALWAYS CAPTURED, PERSISTED WHEN MARKED):
+All events are captured with full detail, but only persisted when marked events occur:
 
 ```
 Event 3 DETAILED: [
@@ -112,6 +115,8 @@ Event 3 DETAILED: [
 ]
 ```
 
+This event would mark the detail buffer for persistence if `strcpy` is in the marking policy.
+
 ## Why Two Lanes?
 
 ### The Problem with Single Recording:
@@ -124,41 +129,42 @@ Event 3 DETAILED: [
 |--------|------------|-------------|
 | **Purpose** | See everything | Debug problems |
 | **Size** | 24 bytes/event | 512 bytes/event |
-| **When** | Always recording | Only when triggered |
+| **Capture** | Always recording | Always recording |
+| **Persistence** | Dump when full | Dump when full AND marked |
 | **Buffer** | 8 MB → 1.5 GB | 64 MB → 1 GB |
-| **Duration** | Minutes to hours | Seconds |
+| **Duration** | Minutes to hours | Seconds to minutes |
 | **Use Case** | "What happened?" | "Why did it crash?" |
 
 ## Flight Recorder Analogy
 
 Like an aircraft black box:
 
-1. **Cockpit Voice Recorder** (Detail Lane)
-   - Records last 30 minutes of cockpit audio
-   - Overwrites old data continuously
-   - Critical for understanding crash
+1. **Flight Data Recorder** (Index Lane)
+   - Records basic parameters continuously
+   - Saves everything to persistent storage
+   - Shows complete flight path
 
-2. **Flight Data Recorder** (Index Lane)
-   - Records basic parameters for hours
-   - Altitude, speed, heading
-   - Shows overall flight path
+2. **Cockpit Voice Recorder** (Detail Lane)
+   - Records full audio continuously in memory
+   - Only saves to persistent storage when important events occur
+   - Preserves critical context around incidents
 
-## Trigger System
+## Marking Policy System
 
-Triggers determine when to start recording detail events:
+The marking policy determines when to persist the detail lane buffer:
 
 ```rust
-// Example triggers
-TriggerKind::FunctionName("strcpy")     // Dangerous function
-TriggerKind::ExceptionThrown            // Any exception
-TriggerKind::MemoryPressure(90)         // Memory > 90%
-TriggerKind::Manual                     // User pressed button
+// Example marking policies
+MarkingPolicy::FunctionName("strcpy")     // Dangerous function
+MarkingPolicy::ExceptionThrown            // Any exception
+MarkingPolicy::MemoryPressure(90)         // Memory > 90%
+MarkingPolicy::Manual                     // User pressed button
 ```
 
-When triggered:
-1. Save previous N milliseconds of detail (pre-roll)
-2. Continue recording detail for M milliseconds (post-roll)
-3. Return to index-only mode
+When a marked event occurs:
+1. The current detail ring buffer is marked for persistence
+2. When the buffer fills, it gets dumped to storage (with all events before and after the mark)
+3. A new ring buffer continues capturing
 
 ## Memory Usage Comparison
 
@@ -181,15 +187,16 @@ When triggered:
 ## Summary
 
 - **Event**: Any traced program activity (function call, return, etc.)
-- **Index Event**: Minimal 24-byte record, always captured
-- **Detail Event**: Full 512-byte context, captured on trigger
-- **Index Lane**: The continuous, lightweight recording buffer
-- **Detail Lane**: The triggered, heavyweight recording buffer
+- **Index Event**: Minimal 24-byte record, always captured and persisted
+- **Detail Event**: Full 512-byte context, always captured, selectively persisted
+- **Index Lane**: Continuous capture and persistence of lightweight events
+- **Detail Lane**: Continuous capture with windowed persistence based on marking policy
 
 The two-lane design allows us to:
-1. Always know what happened (index)
-2. Get full context when needed (detail)
-3. Use memory efficiently
-4. Maintain low overhead
+1. Always know what happened (index lane persists everything)
+2. Always have full context available (detail lane captures everything)
+3. Selectively persist expensive detail data (only when marked events occur)
+4. Use memory and storage efficiently
+5. Maintain low overhead during normal operation
 
-Think of it as having both a security camera (index) that records everything at low quality, and a high-speed camera (detail) that captures critical moments in full detail.
+Think of it as having both a security camera (index) that saves everything at low quality, and a high-resolution camera (detail) that records everything but only saves footage when something important happens.
