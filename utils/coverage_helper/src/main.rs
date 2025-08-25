@@ -71,6 +71,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use walkdir::WalkDir;
 
+mod toolchains;
+mod dashboard;
+
 #[derive(Parser)]
 #[command(name = "coverage_helper")]
 #[command(about = "Coverage collection helper for ADA project")]
@@ -199,15 +202,175 @@ fn collect_coverage() -> Result<()> {
     
     let workspace = get_workspace_root()?;
     let coverage_dir = workspace.join("target").join("coverage");
+    let report_dir = workspace.join("target").join("coverage_report");
+    
+    // Ensure directories exist
+    std::fs::create_dir_all(&coverage_dir)?;
+    std::fs::create_dir_all(&report_dir)?;
+    
+    let mut lcov_files = Vec::new();
     
     // Collect Rust coverage
-    collect_rust_coverage(&workspace, &coverage_dir)?;
+    let rust_lcov = report_dir.join("rust.lcov");
+    if let Ok(_) = collect_rust_coverage(&workspace, &coverage_dir, &rust_lcov) {
+        lcov_files.push(rust_lcov);
+    }
     
     // Collect C/C++ coverage
-    collect_cpp_coverage(&workspace, &coverage_dir)?;
+    let cpp_lcov = report_dir.join("cpp.lcov");
+    if let Ok(_) = collect_cpp_coverage(&workspace, &coverage_dir, &cpp_lcov) {
+        lcov_files.push(cpp_lcov);
+    }
     
-    println!("Coverage data collected.");
+    // Collect Python coverage
+    let python_lcov = report_dir.join("python.lcov");
+    if let Ok(_) = collect_python_coverage(&workspace, &python_lcov) {
+        lcov_files.push(python_lcov);
+    }
+    
+    // Merge all LCOV files
+    if !lcov_files.is_empty() {
+        let merged_lcov = report_dir.join("merged.lcov");
+        toolchains::merge_lcov_files(&lcov_files, &merged_lcov)?;
+        println!("\nMerged coverage data to: {}", merged_lcov.display());
+    } else {
+        println!("\nNo coverage data collected.");
+    }
+    
     Ok(())
+}
+
+/// Collect Python coverage using pytest-cov
+fn collect_python_coverage(workspace: &Path, output_lcov: &Path) -> Result<()> {
+    println!("\nCollecting Python coverage...");
+    
+    // Check which Python components exist
+    let mut components_to_test = vec![];
+    
+    let query_engine_dir = workspace.join("query_engine");
+    if query_engine_dir.exists() && query_engine_dir.join("pyproject.toml").exists() {
+        components_to_test.push(("query_engine", query_engine_dir));
+    }
+    
+    let mcp_server_dir = workspace.join("mcp_server");
+    if mcp_server_dir.exists() && mcp_server_dir.join("pyproject.toml").exists() {
+        components_to_test.push(("mcp_server", mcp_server_dir));
+    }
+    
+    if components_to_test.is_empty() {
+        println!("  No Python components found");
+        return Ok(());
+    }
+    
+    let mut all_lcov_data = String::new();
+    
+    for (name, dir) in components_to_test {
+        println!("  Testing Python component: {}", name);
+        
+        // Create a temporary directory for this component's coverage
+        let temp_coverage_file = workspace.join("target").join("coverage").join(format!("{}_coverage.xml", name));
+        
+        // Run pytest with coverage for this component
+        let output = Command::new("python3")
+            .args(&[
+                "-m", "pytest",
+                "--cov", name,
+                "--cov-report", &format!("xml:{}", temp_coverage_file.display()),
+                "--cov-report", "term",
+            ])
+            .current_dir(&dir)
+            .output();
+        
+        match output {
+            Ok(result) if result.status.success() => {
+                println!("    Tests passed for {}", name);
+                
+                // Convert XML to LCOV if the coverage file was created
+                if temp_coverage_file.exists() {
+                    if let Ok(lcov_data) = convert_xml_to_lcov(&temp_coverage_file, &dir) {
+                        all_lcov_data.push_str(&lcov_data);
+                    }
+                }
+            }
+            Ok(result) => {
+                let stderr = String::from_utf8_lossy(&result.stderr);
+                let stdout = String::from_utf8_lossy(&result.stdout);
+                println!("    No tests found or tests failed for {}", name);
+                if !stderr.is_empty() {
+                    println!("    stderr: {}", stderr);
+                }
+                if !stdout.is_empty() {
+                    println!("    stdout: {}", stdout);
+                }
+            }
+            Err(e) => {
+                println!("    pytest not available or failed for {}: {}", name, e);
+            }
+        }
+    }
+    
+    // Write combined LCOV data
+    if !all_lcov_data.is_empty() {
+        fs::write(output_lcov, all_lcov_data)?;
+        println!("  Python coverage saved to: {}", output_lcov.display());
+    } else {
+        println!("  No Python coverage data collected");
+    }
+    
+    Ok(())
+}
+
+/// Convert Python coverage XML to LCOV format
+fn convert_xml_to_lcov(xml_file: &Path, base_dir: &Path) -> Result<String> {
+    // For now, use a simple Python script to convert
+    let python_script = r#"
+import xml.etree.ElementTree as ET
+import sys
+import os
+
+def convert_xml_to_lcov(xml_path, base_dir):
+    tree = ET.parse(xml_path)
+    root = tree.getroot()
+    
+    lcov_output = []
+    
+    for package in root.findall('.//package'):
+        for class_elem in package.findall('classes/class'):
+            filename = class_elem.get('filename')
+            if filename:
+                # Make path relative to workspace root
+                full_path = os.path.join(base_dir, filename)
+                lcov_output.append(f'SF:{full_path}')
+                
+                # Process lines
+                for line in class_elem.findall('lines/line'):
+                    line_number = line.get('number')
+                    hits = line.get('hits', '0')
+                    lcov_output.append(f'DA:{line_number},{hits}')
+                
+                lcov_output.append('end_of_record')
+    
+    return '\n'.join(lcov_output)
+
+if __name__ == '__main__':
+    xml_path = sys.argv[1]
+    base_dir = sys.argv[2]
+    print(convert_xml_to_lcov(xml_path, base_dir))
+"#;
+    
+    let output = Command::new("python3")
+        .arg("-c")
+        .arg(python_script)
+        .arg(xml_file)
+        .arg(base_dir)
+        .output()?;
+    
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    } else {
+        // Fallback: return empty string if conversion fails
+        Ok(String::new())
+    }
 }
 
 /// Find LLVM tools (llvm-profdata, llvm-cov) in various locations.
@@ -288,14 +451,18 @@ fn find_llvm_tool(tool_name: &str) -> Result<PathBuf> {
 /// 
 /// The same LLVM tools are used for both Rust and C/C++ coverage,
 /// providing a unified coverage solution.
-fn collect_rust_coverage(workspace: &Path, coverage_dir: &Path) -> Result<()> {
-    println!("Collecting Rust coverage...");
+fn collect_rust_coverage(workspace: &Path, coverage_dir: &Path, output_lcov: &Path) -> Result<()> {
+    println!("\nCollecting Rust coverage...");
     
-    // Find all .profraw files
+    // Find all Rust .profraw files
     let profraw_files: Vec<PathBuf> = WalkDir::new(coverage_dir)
         .into_iter()
         .filter_map(|e| e.ok())
-        .filter(|e| e.path().extension().map_or(false, |ext| ext == "profraw"))
+        .filter(|e| {
+            let path = e.path();
+            path.extension().map_or(false, |ext| ext == "profraw") &&
+            path.file_name().and_then(|n| n.to_str()).map_or(false, |n| n.contains("rust") || !n.contains("cpp"))
+        })
         .map(|e| e.path().to_path_buf())
         .collect();
     
@@ -304,27 +471,12 @@ fn collect_rust_coverage(workspace: &Path, coverage_dir: &Path) -> Result<()> {
         return Ok(());
     }
     
-    let profdata_path = coverage_dir.join("rust.profdata");
-    
-    // Find llvm-profdata tool
-    let llvm_profdata = find_llvm_tool("llvm-profdata")?;
+    // Use Rust toolchain for Rust code
+    let toolchain = toolchains::detect_rust_toolchain()?;
     
     // Merge profraw files into profdata
-    let mut merge_cmd = Command::new(&llvm_profdata);
-    merge_cmd.arg("merge")
-        .arg("-sparse")
-        .arg("-o")
-        .arg(&profdata_path);
-    
-    for file in &profraw_files {
-        merge_cmd.arg(file);
-    }
-    
-    merge_cmd.status()
-        .context("Failed to merge Rust coverage data")?;
-    
-    // Generate lcov report
-    let lcov_path = coverage_dir.join("rust.lcov");
+    let profdata_path = coverage_dir.join("rust.profdata");
+    toolchains::merge_profdata(&toolchain, &profraw_files, &profdata_path)?;
     
     // Find test binaries
     let test_binaries: Vec<PathBuf> = WalkDir::new(workspace.join("target"))
@@ -339,25 +491,11 @@ fn collect_rust_coverage(workspace: &Path, coverage_dir: &Path) -> Result<()> {
         .collect();
     
     if !test_binaries.is_empty() {
-        let llvm_cov = find_llvm_tool("llvm-cov")?;
-        let mut export_cmd = Command::new(&llvm_cov);
-        export_cmd.arg("export")
-            .arg("--format=lcov")
-            .arg("--instr-profile")
-            .arg(&profdata_path)
-            .arg("--ignore-filename-regex='/.cargo/|/rustc/'");
-        
-        for binary in &test_binaries {
-            export_cmd.arg("--object").arg(binary);
-        }
-        
-        let output = export_cmd.output()
-            .context("Failed to export Rust coverage data")?;
-        
-        fs::write(&lcov_path, output.stdout)
-            .context("Failed to write Rust lcov file")?;
-        
-        println!("Rust coverage saved to: {}", lcov_path.display());
+        // Export to LCOV format
+        toolchains::export_lcov(&toolchain, &test_binaries, &profdata_path, output_lcov)?;
+        println!("  Rust coverage saved to: {}", output_lcov.display());
+    } else {
+        println!("  No Rust test binaries found");
     }
     
     Ok(())
@@ -378,7 +516,7 @@ fn collect_rust_coverage(workspace: &Path, coverage_dir: &Path) -> Result<()> {
 /// - No need for gcov/lcov for C/C++
 /// - Same toolchain for all languages
 /// - Consistent output format (LCOV) for all coverage
-fn collect_cpp_coverage(workspace: &Path, coverage_dir: &Path) -> Result<()> {
+fn collect_cpp_coverage(workspace: &Path, coverage_dir: &Path, output_lcov: &Path) -> Result<()> {
     println!("Collecting C/C++ coverage...");
     
     // Find all .profraw files from C/C++ tests
@@ -398,22 +536,12 @@ fn collect_cpp_coverage(workspace: &Path, coverage_dir: &Path) -> Result<()> {
         return Ok(());
     }
     
-    let profdata_path = coverage_dir.join("cpp.profdata");
+    // Use C++ toolchain (prefers Xcode on macOS)
+    let toolchain = toolchains::detect_cpp_toolchain()?;
     
     // Merge profraw files
-    let llvm_profdata = find_llvm_tool("llvm-profdata")?;
-    let mut merge_cmd = Command::new(&llvm_profdata);
-    merge_cmd.arg("merge")
-        .arg("-sparse")
-        .arg("-o")
-        .arg(&profdata_path);
-    
-    for file in &cpp_profraw_files {
-        merge_cmd.arg(file);
-    }
-    
-    merge_cmd.status()
-        .context("Failed to merge C/C++ coverage data")?;
+    let profdata_path = coverage_dir.join("cpp.profdata");
+    toolchains::merge_profdata(&toolchain, &cpp_profraw_files, &profdata_path)?;
     
     // Find C/C++ test binaries
     let test_binaries: Vec<PathBuf> = WalkDir::new(workspace.join("target"))
@@ -431,26 +559,11 @@ fn collect_cpp_coverage(workspace: &Path, coverage_dir: &Path) -> Result<()> {
         .collect();
     
     if !test_binaries.is_empty() {
-        let lcov_path = coverage_dir.join("cpp.lcov");
-        
-        let llvm_cov = find_llvm_tool("llvm-cov")?;
-        let mut export_cmd = Command::new(&llvm_cov);
-        export_cmd.arg("export")
-            .arg("--format=lcov")
-            .arg("--instr-profile")
-            .arg(&profdata_path);
-        
-        for binary in &test_binaries {
-            export_cmd.arg("--object").arg(binary);
-        }
-        
-        let output = export_cmd.output()
-            .context("Failed to export C/C++ coverage data")?;
-        
-        fs::write(&lcov_path, output.stdout)
-            .context("Failed to write C/C++ lcov file")?;
-        
-        println!("C/C++ coverage saved to: {}", lcov_path.display());
+        // Export to LCOV format
+        toolchains::export_lcov(&toolchain, &test_binaries, &profdata_path, output_lcov)?;
+        println!("  C/C++ coverage saved to: {}", output_lcov.display());
+    } else {
+        println!("  No C/C++ test binaries found");
     }
     
     Ok(())
@@ -504,21 +617,21 @@ fn generate_report(format: &str) -> Result<()> {
             calculate_coverage_percentage(&merged_lcov)?;
         }
         "html" => {
-            let html_dir = coverage_dir.join("html");
-            fs::create_dir_all(&html_dir)?;
+            let report_dir = workspace.join("target").join("coverage_report");
+            let merged_lcov = report_dir.join("merged.lcov");
             
-            // Generate HTML report using llvm-cov
-            let profdata = coverage_dir.join("rust.profdata");
-            if profdata.exists() {
-                Command::new("llvm-cov")
-                    .args(&["show", "--format=html", "--output-dir"])
-                    .arg(&html_dir)
-                    .arg("--instr-profile")
-                    .arg(&profdata)
-                    .status()
-                    .context("Failed to generate HTML report")?;
-                
-                println!("HTML report saved to: {}", html_dir.display());
+            // First ensure we have merged LCOV
+            if !merged_lcov.exists() {
+                println!("No merged LCOV found. Running collection first...");
+                collect_coverage()?;
+            }
+            
+            // Generate dashboard
+            if merged_lcov.exists() {
+                dashboard::generate_dashboard(&workspace, &report_dir, &merged_lcov)?;
+                println!("HTML dashboard saved to: {}/index.html", report_dir.display());
+            } else {
+                println!("No coverage data available for HTML report");
             }
         }
         "text" => {

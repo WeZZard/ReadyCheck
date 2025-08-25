@@ -76,12 +76,38 @@ build_all() {
     fi
 }
 
+is_ci() {
+  # Generic flag plus common vendor-specific toggles
+  [ -n "$CI" ] ||
+  [ -n "$GITHUB_ACTIONS" ] ||
+  [ -n "$GITLAB_CI" ] ||
+  [ -n "$BUILDKITE" ] ||
+  [ -n "$CIRCLECI" ] ||
+  [ -n "$TEAMCITY_VERSION" ] ||
+  [ -n "$JENKINS_URL" ] ||
+  [ -n "$BITBUCKET_BUILD_NUMBER" ] ||
+  [ -n "$TRAVIS" ] ||
+  [ -n "$APPVEYOR" ]
+}
+
+is_ssh() {
+  # Fast-path: env vars set by ssh/mosh
+  if [ -n "$SSH_CONNECTION" ] || [ -n "$SSH_TTY" ] || [ -n "$SSH_CLIENT" ] || [ -n "$MOSH_CONNECTION" ]; then
+    return 0
+  fi
+
+  # Sudo can scrub SSH_*; fall back to parent process name
+  # (portable enough for macOS/Linux; ignore errors if ps differs)
+  p=$(ps -o comm= -p "$PPID" 2>/dev/null || true)
+  echo "$p" | grep -Eq '(^|/)(sshd|mosh-server)$'
+}
+
 # Sign test binaries (MANDATORY on macOS)
 sign_test_binaries() {
     log_info "Signing test binaries (MANDATORY on macOS)..."
     
-    # Check for Apple Developer certificate
-    if [[ -z "${APPLE_DEVELOPER_ID:-}" ]]; then
+    # Check for Apple Developer certificate in CI or SSH session
+    if  ( is_ci || is_ssh ) && [ -z "${APPLE_DEVELOPER_ID:-}" ]; then
         log_error "APPLE_DEVELOPER_ID environment variable not set"
         log_error ""
         log_error "You MUST have an Apple Developer certificate to develop ADA on macOS."
@@ -251,7 +277,7 @@ has_source_changes() {
 
 # Check incremental coverage for changed files
 check_incremental_coverage() {
-    log_info "Checking incremental coverage..."
+    log_info "Checking incremental coverage for changed lines..."
     
     # Get changed source files (excluding tests)
     local changed_files=$(has_source_changes || echo "")
@@ -261,12 +287,44 @@ check_incremental_coverage() {
         return 0
     fi
     
-    log_info "Source files changed:"
+    log_info "Source files with changes:"
     echo "$changed_files" | sed 's/^/  - /'
     
-    # TODO: Implement detailed incremental coverage check for specific files
-    # For now, we're running full coverage but should check coverage of changed files
-    log_success "Incremental coverage check completed"
+    # Check if merged LCOV exists
+    local merged_lcov="${REPO_ROOT}/target/coverage_report/merged.lcov"
+    if [[ ! -f "$merged_lcov" ]]; then
+        log_error "No coverage data found. Run tests with coverage first."
+        deduct_points 100 "Coverage data missing"
+        return 1
+    fi
+    
+    # Determine comparison branch
+    local compare_branch="HEAD~1"
+    if git rev-parse --verify origin/main &>/dev/null; then
+        compare_branch="origin/main"
+    fi
+    
+    log_info "Comparing against: $compare_branch"
+    
+    # Run diff-cover with 100% requirement for changed lines
+    if diff-cover "$merged_lcov" \
+                  --fail-under=100 \
+                  --compare-branch="$compare_branch" 2>&1; then
+        log_success "All changed lines have 100% coverage"
+        return 0
+    else
+        log_error "Some changed lines lack coverage"
+        deduct_points 100 "Changed lines must have 100% test coverage"
+        
+        # Generate HTML report for detailed view
+        local report_dir="${REPO_ROOT}/target/coverage_report"
+        diff-cover "$merged_lcov" \
+                   --compare-branch="$compare_branch" \
+                   --html-report="${report_dir}/diff-coverage.html" &>/dev/null || true
+        
+        log_warning "View detailed report: file://${report_dir}/diff-coverage.html"
+        return 1
+    fi
 }
 
 # Check for incomplete implementations
@@ -283,6 +341,43 @@ check_incomplete() {
     else
         log_success "No incomplete implementations found"
     fi
+}
+
+# Open coverage report in browser
+open_coverage_report() {
+    local report_path="${REPO_ROOT}/target/coverage_report/index.html"
+    
+    # Check if report exists
+    if [[ ! -f "$report_path" ]]; then
+        # Try diff coverage report
+        report_path="${REPO_ROOT}/target/coverage_report/diff-coverage.html"
+        if [[ ! -f "$report_path" ]]; then
+            log_warning "No coverage report found. Run coverage collection first."
+            return 1
+        fi
+    fi
+    
+    log_info "Opening coverage report in browser..."
+    
+    # Platform-specific browser opening
+    case "$OSTYPE" in
+        darwin*)
+            open "$report_path"
+            ;;
+        linux*)
+            if command -v xdg-open &>/dev/null; then
+                xdg-open "$report_path"
+            else
+                log_info "Report available at: file://$report_path"
+            fi
+            ;;
+        msys*|cygwin*)
+            start "$report_path"
+            ;;
+        *)
+            log_info "Report available at: file://$report_path"
+            ;;
+    esac
 }
 
 # Generate final report
@@ -380,7 +475,7 @@ main() {
         $CHECK_RESULT_PASSED)
         # Success
         echo -e "${GREEN}╔════════════════════════════════════════════════════════════╗${NC}"
-        echo -e "${GREEN}║              QUALITY GATE PASSED ✓                         ║${NC}"
+        echo -e "${GREEN}║                   QUALITY GATE PASSED ✓                    ║${NC}"
         echo -e "${GREEN}╠════════════════════════════════════════════════════════════╣${NC}"
         echo -e "${GREEN}║  All critical quality checks passed:                       ║${NC}"
         echo -e "${GREEN}║  • Build successful                                        ║${NC}"
@@ -395,7 +490,7 @@ main() {
         ;;
         $CHECK_RESULT_BLOCKED)
         echo -e   "${RED}╔════════════════════════════════════════════════════════════╗${NC}"
-        echo -e   "${RED}║           COMMIT BLOCKED: QUALITY GATE FAILED              ║${NC}"
+        echo -e   "${RED}║            COMMIT BLOCKED: QUALITY GATE FAILED             ║${NC}"
         echo -e   "${RED}╠════════════════════════════════════════════════════════════╣${NC}"
         echo -e   "${RED}║  Critical quality gates must pass before committing:       ║${NC}"
         echo -e   "${RED}║                                                            ║${NC}"
@@ -411,12 +506,12 @@ main() {
         echo -e   "${RED}║  - NO git commit --no-verify                               ║${NC}"
         echo -e   "${RED}║                                                            ║${NC}"
         echo -e   "${RED}║  Fix the issues and try again.                             ║${NC}"
-        echo -e   "${RED}╚═══════════════════════════════════════════════════════════╝${NC}"
+        echo -e   "${RED}╚════════════════════════════════════════════════════════════╝${NC}"
         return 1;
         ;;
         $CHECK_RESULT_DOCUMENT_ONLY)
         echo -e "${GREEN}╔════════════════════════════════════════════════════════════╗${NC}"
-        echo -e "${GREEN}║          DOCUMENTATION-ONLY CHANGES DETECTED               ║${NC}"
+        echo -e "${GREEN}║            DOCUMENTATION-ONLY CHANGES DETECTED             ║${NC}"
         echo -e "${GREEN}╠════════════════════════════════════════════════════════════╣${NC}"
         echo -e "${GREEN}║  Only markdown/text files were modified.                   ║${NC}"
         echo -e "${GREEN}║  Skipping unnecessary quality checks:                      ║${NC}"
@@ -434,4 +529,11 @@ main() {
 }
 # Run main function
 main
-exit $?
+MAIN_RESULT=$?
+
+# Handle --show-report flag
+if [[ "${2:-}" == "--show-report" ]] || [[ "${3:-}" == "--show-report" ]]; then
+    open_coverage_report
+fi
+
+exit $MAIN_RESULT

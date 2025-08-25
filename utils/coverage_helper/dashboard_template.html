@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ADA Coverage Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        header {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            margin-bottom: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }
+        
+        h1 {
+            color: #333;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        
+        .subtitle {
+            color: #666;
+            font-size: 1.1em;
+        }
+        
+        .dashboard {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 40px rgba(0,0,0,0.15);
+        }
+        
+        .card h2 {
+            color: #333;
+            font-size: 1.3em;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .coverage-badge {
+            font-size: 3em;
+            font-weight: bold;
+            text-align: center;
+            margin: 20px 0;
+        }
+        
+        .pass { color: #28a745; }
+        .warning { color: #ffc107; }
+        .fail { color: #dc3545; }
+        
+        .status-list {
+            list-style: none;
+            margin-top: 15px;
+        }
+        
+        .status-list li {
+            padding: 8px 0;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .status-list li:last-child {
+            border-bottom: none;
+        }
+        
+        .badge {
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 0.85em;
+            font-weight: 600;
+        }
+        
+        .badge.pass {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .badge.warning {
+            background: #fff3cd;
+            color: #856404;
+        }
+        
+        .badge.fail {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        
+        .component-table {
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        th {
+            text-align: left;
+            padding: 12px;
+            border-bottom: 2px solid #dee2e6;
+            color: #495057;
+            font-weight: 600;
+        }
+        
+        td {
+            padding: 12px;
+            border-bottom: 1px solid #dee2e6;
+        }
+        
+        tr:last-child td {
+            border-bottom: none;
+        }
+        
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #e9ecef;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 5px;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.3s ease;
+        }
+        
+        .progress-fill.pass {
+            background: linear-gradient(90deg, #28a745, #20c997);
+        }
+        
+        .progress-fill.warning {
+            background: linear-gradient(90deg, #ffc107, #fd7e14);
+        }
+        
+        .progress-fill.fail {
+            background: linear-gradient(90deg, #dc3545, #c82333);
+        }
+        
+        .actions {
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }
+        
+        .action-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+        
+        .action-btn {
+            display: block;
+            padding: 12px 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            text-align: center;
+            font-weight: 600;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        
+        .action-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        
+        footer {
+            text-align: center;
+            color: white;
+            margin-top: 40px;
+            padding: 20px;
+        }
+        
+        .icon {
+            width: 24px;
+            height: 24px;
+            display: inline-block;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🔬 ADA Coverage Dashboard</h1>
+            <p class="subtitle">Generated: <span id="timestamp">{{TIMESTAMP}}</span> | Commit: <span id="commit">{{COMMIT}}</span> | Branch: <span id="branch">{{BRANCH}}</span></p>
+        </header>
+        
+        <div class="dashboard">
+            <div class="card">
+                <h2>
+                    <span class="icon">📊</span>
+                    Changed Lines Coverage
+                </h2>
+                <div class="coverage-badge {{CHANGED_LINES_STATUS}}">{{CHANGED_LINES_COVERAGE}}%</div>
+                <p style="text-align: center; color: #666;">
+                    {{CHANGED_LINES_COVERED}} / {{CHANGED_LINES_TOTAL}} lines covered
+                </p>
+                <div class="progress-bar">
+                    <div class="progress-fill {{CHANGED_LINES_STATUS}}" style="width: {{CHANGED_LINES_COVERAGE}}%"></div>
+                </div>
+                <ul class="status-list">
+                    <li>
+                        <span>Required</span>
+                        <span class="badge pass">100%</span>
+                    </li>
+                    <li>
+                        <span>Status</span>
+                        <span class="badge {{CHANGED_LINES_STATUS}}">{{CHANGED_LINES_RESULT}}</span>
+                    </li>
+                </ul>
+                <p style="margin-top: 15px; text-align: center;">
+                    <a href="diff-coverage.html" class="action-btn">View Details →</a>
+                </p>
+            </div>
+            
+            <div class="card">
+                <h2>
+                    <span class="icon">📈</span>
+                    Total Project Coverage
+                </h2>
+                <div class="coverage-badge {{TOTAL_STATUS}}">{{TOTAL_COVERAGE}}%</div>
+                <p style="text-align: center; color: #666;">
+                    {{TOTAL_LINES_COVERED}} / {{TOTAL_LINES}} lines covered
+                </p>
+                <div class="progress-bar">
+                    <div class="progress-fill {{TOTAL_STATUS}}" style="width: {{TOTAL_COVERAGE}}%"></div>
+                </div>
+                <ul class="status-list">
+                    <li>
+                        <span>Functions</span>
+                        <span class="badge {{FUNC_STATUS}}">{{FUNC_COVERAGE}}%</span>
+                    </li>
+                    <li>
+                        <span>Branches</span>
+                        <span class="badge {{BRANCH_STATUS}}">{{BRANCH_COVERAGE}}%</span>
+                    </li>
+                </ul>
+                <p style="margin-top: 15px; text-align: center;">
+                    <a href="full/index.html" class="action-btn">Full Report →</a>
+                </p>
+            </div>
+        </div>
+        
+        <div class="component-table">
+            <h2>Component Coverage Breakdown</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Component</th>
+                        <th>Line Coverage</th>
+                        <th>Function Coverage</th>
+                        <th>Branch Coverage</th>
+                        <th>Health</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>🦀 tracer</strong> (Rust)</td>
+                        <td>
+                            {{TRACER_LINE_COV}}%
+                            <div class="progress-bar">
+                                <div class="progress-fill {{TRACER_LINE_STATUS}}" style="width: {{TRACER_LINE_COV}}%"></div>
+                            </div>
+                        </td>
+                        <td>{{TRACER_FUNC_COV}}%</td>
+                        <td>{{TRACER_BRANCH_COV}}%</td>
+                        <td><span class="badge {{TRACER_STATUS}}">{{TRACER_HEALTH}}</span></td>
+                    </tr>
+                    <tr>
+                        <td><strong>⚙️ tracer_backend</strong> (C/C++)</td>
+                        <td>
+                            {{BACKEND_LINE_COV}}%
+                            <div class="progress-bar">
+                                <div class="progress-fill {{BACKEND_LINE_STATUS}}" style="width: {{BACKEND_LINE_COV}}%"></div>
+                            </div>
+                        </td>
+                        <td>{{BACKEND_FUNC_COV}}%</td>
+                        <td>{{BACKEND_BRANCH_COV}}%</td>
+                        <td><span class="badge {{BACKEND_STATUS}}">{{BACKEND_HEALTH}}</span></td>
+                    </tr>
+                    <tr>
+                        <td><strong>🐍 query_engine</strong> (Python)</td>
+                        <td>
+                            {{QUERY_LINE_COV}}%
+                            <div class="progress-bar">
+                                <div class="progress-fill {{QUERY_LINE_STATUS}}" style="width: {{QUERY_LINE_COV}}%"></div>
+                            </div>
+                        </td>
+                        <td>{{QUERY_FUNC_COV}}%</td>
+                        <td>{{QUERY_BRANCH_COV}}%</td>
+                        <td><span class="badge {{QUERY_STATUS}}">{{QUERY_HEALTH}}</span></td>
+                    </tr>
+                    <tr>
+                        <td><strong>🔌 mcp_server</strong> (Python)</td>
+                        <td>
+                            {{MCP_LINE_COV}}%
+                            <div class="progress-bar">
+                                <div class="progress-fill {{MCP_LINE_STATUS}}" style="width: {{MCP_LINE_COV}}%"></div>
+                            </div>
+                        </td>
+                        <td>{{MCP_FUNC_COV}}%</td>
+                        <td>{{MCP_BRANCH_COV}}%</td>
+                        <td><span class="badge {{MCP_STATUS}}">{{MCP_HEALTH}}</span></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        
+        <div class="actions">
+            <h2>Quick Actions</h2>
+            <div class="action-grid">
+                <a href="diff-coverage.html" class="action-btn">📊 Changed Lines Report</a>
+                <a href="full/index.html" class="action-btn">📈 Full Coverage Report</a>
+                <a href="uncovered.txt" class="action-btn">🔍 Uncovered Lines List</a>
+                <a href="history.html" class="action-btn">📉 Coverage Trends</a>
+            </div>
+        </div>
+        
+        <footer>
+            <p>Generated with ADA Coverage System | Powered by LLVM Coverage Tools</p>
+        </footer>
+    </div>
+    
+    <script>
+        // Add any interactive features here
+        document.addEventListener('DOMContentLoaded', function() {
+            // Animate progress bars on load
+            const progressFills = document.querySelectorAll('.progress-fill');
+            progressFills.forEach(fill => {
+                const width = fill.style.width;
+                fill.style.width = '0';
+                setTimeout(() => {
+                    fill.style.width = width;
+                }, 100);
+            });
+        });
+    </script>
+</body>
+</html>

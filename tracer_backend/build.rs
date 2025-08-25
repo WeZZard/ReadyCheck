@@ -26,7 +26,7 @@ fn main() {
     println!("cargo:rustc-env=ADA_WORKSPACE_ROOT={}", workspace_root.display());
     println!("cargo:rustc-env=ADA_BUILD_PROFILE={}", profile);
 
-    // Check if coverage is enabled
+    // Check if coverage is enabled via Cargo feature
     let coverage_enabled = env::var("CARGO_FEATURE_COVERAGE").is_ok();
     
     // Build the C/C++ components using cmake
@@ -42,10 +42,10 @@ fn main() {
     // Add coverage flags if enabled
     if coverage_enabled {
         println!("cargo:warning=Coverage instrumentation enabled for C/C++ code");
-        cmake_config
-            .define("ENABLE_COVERAGE", "ON")
-            .define("CMAKE_C_FLAGS", "-fprofile-instr-generate -fcoverage-mapping")
-            .define("CMAKE_CXX_FLAGS", "-fprofile-instr-generate -fcoverage-mapping");
+        cmake_config.define("ENABLE_COVERAGE", "ON");
+        
+        // Also set environment variable for LLVM profile output
+        println!("cargo:rustc-env=LLVM_PROFILE_FILE={}/coverage/cpp-%p-%m.profraw", workspace_root.display());
     }
     
     let dst = cmake_config.build();
