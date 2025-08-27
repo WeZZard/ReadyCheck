@@ -7,6 +7,12 @@
 #include <unistd.h>
 #include <limits.h>
 
+#if DEBUG
+#define DEBUG_LOG(...) fprintf(stderr, __VA_ARGS__)
+#else
+#define DEBUG_LOG(...)
+#endif
+
 // ============================================================================
 // Thread-local storage for fast path
 // ============================================================================
@@ -112,7 +118,7 @@ ThreadRegistry* thread_registry_init(void* memory, size_t size) {
     }
     
     // Memory layout after ThreadRegistry structure
-    uint8_t* current = (uint8_t*)memory + sizeof(ThreadRegistry);
+    uint8_t* tail_elements = (uint8_t*)memory + sizeof(ThreadRegistry);
     
     // Allocate memory for each thread's lanes
     for (int i = 0; i < MAX_THREADS; i++) {
@@ -123,49 +129,64 @@ ThreadRegistry* thread_registry_init(void* memory, size_t size) {
         tls->index_lane.ring_count = RINGS_PER_INDEX_LANE;
         
         // Allocate array of RingBuffer pointers
-        tls->index_lane.rings = (struct RingBuffer**)current;
-        current += RINGS_PER_INDEX_LANE * sizeof(struct RingBuffer*);
+        tls->index_lane.rings = (struct RingBuffer**)tail_elements;
+        tail_elements += RINGS_PER_INDEX_LANE * sizeof(struct RingBuffer*);
         
         // Allocate and initialize each ring buffer
         for (uint32_t j = 0; j < RINGS_PER_INDEX_LANE; j++) {
-            tls->index_lane.rings[j] = ring_buffer_create(current, index_ring_size, sizeof(IndexEvent));
-            current += index_ring_size;
+            tls->index_lane.rings[j] = ring_buffer_create(tail_elements, index_ring_size, sizeof(IndexEvent));
+            tail_elements += index_ring_size;
         }
         
         // Index lane SPSC queues (8 entries each)
-        tls->index_lane.submit_queue_size = 8;
-        tls->index_lane.submit_queue = (uint32_t*)current;
-        current += 8 * sizeof(uint32_t);
+        tls->index_lane.submit_queue_size = QUEUE_COUNT_INDEX_LANE;
+        tls->index_lane.submit_queue = (uint32_t*)tail_elements;
+        tail_elements += QUEUE_COUNT_INDEX_LANE * sizeof(uint32_t);
         
-        tls->index_lane.free_queue_size = 8;
-        tls->index_lane.free_queue = (uint32_t*)current;
-        current += 8 * sizeof(uint32_t);
+        tls->index_lane.free_queue_size = QUEUE_COUNT_INDEX_LANE;
+        tls->index_lane.free_queue = (uint32_t*)tail_elements;
+        tail_elements += QUEUE_COUNT_INDEX_LANE * sizeof(uint32_t);
         
         // Detail lane setup (2 rings of 256KB each)
         size_t detail_ring_size = 256 * 1024;
         tls->detail_lane.ring_count = RINGS_PER_DETAIL_LANE;
         
         // Allocate array of RingBuffer pointers
-        tls->detail_lane.rings = (struct RingBuffer**)current;
-        current += RINGS_PER_DETAIL_LANE * sizeof(struct RingBuffer*);
+        tls->detail_lane.rings = (struct RingBuffer**)tail_elements;
+        tail_elements += RINGS_PER_DETAIL_LANE * sizeof(struct RingBuffer*);
         
         // Allocate and initialize each ring buffer
         for (uint32_t j = 0; j < RINGS_PER_DETAIL_LANE; j++) {
-            tls->detail_lane.rings[j] = ring_buffer_create(current, detail_ring_size, sizeof(DetailEvent));
-            current += detail_ring_size;
+            tls->detail_lane.rings[j] = ring_buffer_create(tail_elements, detail_ring_size, sizeof(DetailEvent));
+            tail_elements += detail_ring_size;
         }
         
         // Detail lane SPSC queues (4 entries each)
-        tls->detail_lane.submit_queue_size = 4;
-        tls->detail_lane.submit_queue = (uint32_t*)current;
-        current += 4 * sizeof(uint32_t);
+        tls->detail_lane.submit_queue_size = QUEUE_COUNT_DETAIL_LANE;
+        tls->detail_lane.submit_queue = (uint32_t*)tail_elements;
+        tail_elements += QUEUE_COUNT_DETAIL_LANE * sizeof(uint32_t);
         
-        tls->detail_lane.free_queue_size = 4;
-        tls->detail_lane.free_queue = (uint32_t*)current;
-        current += 4 * sizeof(uint32_t);
+        tls->detail_lane.free_queue_size = QUEUE_COUNT_DETAIL_LANE;
+        tls->detail_lane.free_queue = (uint32_t*)tail_elements;
+        tail_elements += QUEUE_COUNT_DETAIL_LANE * sizeof(uint32_t);
     }
     
     return registry;
+}
+
+void thread_registry_deinit(ThreadRegistry* registry) {
+    DEBUG_LOG("thread_registry_deinit %p\n", registry);
+
+    if (!registry) {
+        DEBUG_LOG("thread_registry_deinit: registry is NULL\n");
+        return;
+    }
+
+    thread_registry_unregister(registry->thread_lanes);
+
+    DEBUG_LOG("thread_registry_deinit: registry is %p\n", registry);
+    // Clear all memory
+    memset(registry, 0, sizeof(ThreadRegistry));  
 }
 
 ThreadRegistry* thread_registry_attach(void* memory) {
@@ -189,25 +210,18 @@ ThreadRegistry* thread_registry_attach(void* memory) {
 // Thread registration
 // ============================================================================
 
-bool needs_log_thread_registry_registry = false;
-
-#define DEBUG_LOG(...) fprintf(stderr, __VA_ARGS__)
-
-#define THREAD_REGISTRY_LOG(fmt, ...) \
-    if (needs_log_thread_registry_registry) { \
-        DEBUG_LOG(fmt, ##__VA_ARGS__); \
-    }
-
 ThreadLaneSet* thread_registry_register(ThreadRegistry* registry, uint32_t thread_id) {
+    DEBUG_LOG("Thread %u register began\n", thread_id);
+
     // Check if we already have a cached lane set
     if (tls_my_lanes != NULL) {
-        THREAD_REGISTRY_LOG("Thread %u already registered\n", thread_id);
+        DEBUG_LOG("Thread %u already registered\n", thread_id);
         return tls_my_lanes;
     }
     
     // Check if still accepting registrations
     if (!atomic_load_explicit(&registry->accepting_registrations, memory_order_acquire)) {
-        THREAD_REGISTRY_LOG("Thread registry not accepting registrations\n");
+        DEBUG_LOG("Thread registry not accepting registrations\n");
         return NULL;
     }
     
@@ -219,7 +233,7 @@ ThreadLaneSet* thread_registry_register(ThreadRegistry* registry, uint32_t threa
                                               memory_order_acq_rel);
     
     if (slot >= MAX_THREADS) {
-        THREAD_REGISTRY_LOG("Thread registry full\n");
+        DEBUG_LOG("Thread registry full\n");
         // Too many threads, roll back the count
         atomic_fetch_sub_explicit(&registry->thread_count, 1, memory_order_acq_rel);
         return NULL;
@@ -235,7 +249,7 @@ ThreadLaneSet* thread_registry_register(ThreadRegistry* registry, uint32_t threa
     // Initialize lanes - put all rings except first into free queue
     // Index lane
     for (uint32_t i = 1; i < lanes->index_lane.ring_count; i++) {
-        THREAD_REGISTRY_LOG("Thread %u: Index lane ring %u\n", thread_id, i);
+        DEBUG_LOG("Thread %u: Index lane ring %u\n", thread_id, i);
         lanes->index_lane.free_queue[i - 1] = i;
     }
     atomic_store_explicit(&lanes->index_lane.free_tail, 
@@ -244,7 +258,7 @@ ThreadLaneSet* thread_registry_register(ThreadRegistry* registry, uint32_t threa
     
     // Detail lane
     for (uint32_t i = 1; i < lanes->detail_lane.ring_count; i++) {
-        THREAD_REGISTRY_LOG("Thread %u: Detail lane ring %u\n", thread_id, i);
+        DEBUG_LOG("Thread %u: Detail lane ring %u\n", thread_id, i);
         lanes->detail_lane.free_queue[i - 1] = i;
     }
     atomic_store_explicit(&lanes->detail_lane.free_tail,
@@ -256,7 +270,9 @@ ThreadLaneSet* thread_registry_register(ThreadRegistry* registry, uint32_t threa
     
     // Cache in TLS for fast path
     tls_my_lanes = lanes;
-    
+
+    DEBUG_LOG("Thread %u register completed\n", thread_id);
+
     return lanes;
 }
 

@@ -315,4 +315,16 @@ mod tests {
     fn test_baseline_hooks() {
         run_c_test("test_baseline_hooks").expect("Baseline hooks test failed");
     }
+
+    #[test]
+    #[serial]
+    fn test_thread_registry() {
+        run_c_test("test_thread_registry").expect("Thread registry test failed");
+    }
+
+    #[test]
+    #[serial]
+    fn test_thread_registry_integration() {
+        run_c_test("test_thread_registry_integration").expect("Thread registry integration test failed");
+    }
 }

@@ -117,6 +117,8 @@ typedef struct {
 #define RINGS_PER_INDEX_LANE 4
 #define RINGS_PER_DETAIL_LANE 2
 #define CACHE_LINE_SIZE 64
+#define QUEUE_COUNT_INDEX_LANE 8
+#define QUEUE_COUNT_DETAIL_LANE 4
 
 // Forward declaration - RingBuffer is defined in ring_buffer.h
 struct RingBuffer;
@@ -130,12 +132,14 @@ typedef struct __attribute__((aligned(CACHE_LINE_SIZE))) {
     _Atomic(uint32_t) active_idx;   // Currently active ring index
     
     // SPSC submit queue (thread -> drain)
+    // The last element in the queue is reserved as the sentinel.
     _Atomic(uint32_t) submit_head;  // Consumer position (drain reads)
     _Atomic(uint32_t) submit_tail;  // Producer position (thread writes)
     uint32_t* submit_queue;          // Queue of ring indices ready to drain
     uint32_t submit_queue_size;      // Queue capacity
     
     // SPSC free queue (drain -> thread)  
+    // The last element in the queue is reserved as the sentinel.
     _Atomic(uint32_t) free_head;    // Consumer position (thread reads)
     _Atomic(uint32_t) free_tail;    // Producer position (drain writes)
     uint32_t* free_queue;            // Queue of empty ring indices

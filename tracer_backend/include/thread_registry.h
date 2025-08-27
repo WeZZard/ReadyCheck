@@ -20,6 +20,13 @@ extern "C" {
 // Returns: pointer to initialized ThreadRegistry, or NULL on failure
 ThreadRegistry* thread_registry_init(void* memory, size_t size);
 
+/// Deinitialize thread registry
+/// registry: pointer to ThreadRegistry to deinitialize
+/// memory: pointer to shared memory region for the registry
+///
+/// - Note: ONLY FOR TESTING
+void thread_registry_deinit(ThreadRegistry* registry);
+
 // Attach to existing thread registry in shared memory
 // memory: pointer to existing ThreadRegistry in shared memory
 // Returns: pointer to ThreadRegistry, or NULL if invalid

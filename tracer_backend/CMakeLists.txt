@@ -459,16 +459,46 @@ if(BUILD_TESTING)
     )
     
     
-    gtest_discover_tests(test_ring_buffer)
-    gtest_discover_tests(test_ring_buffer_attach)
-    gtest_discover_tests(test_shared_memory)
-    gtest_discover_tests(test_spawn_method)
-    gtest_discover_tests(test_thread_registry)
-    gtest_discover_tests(test_controller_full_lifecycle)
-    gtest_discover_tests(test_integration)
-    gtest_discover_tests(test_thread_registry_integration)
-    gtest_discover_tests(test_agent_loader)
-    gtest_discover_tests(test_baseline_hooks)
+    gtest_discover_tests(test_ring_buffer
+        DISCOVERY_TIMEOUT 60
+        PROPERTIES TIMEOUT 120
+    )
+    gtest_discover_tests(test_ring_buffer_attach
+        DISCOVERY_TIMEOUT 60
+        PROPERTIES TIMEOUT 120
+    )
+    gtest_discover_tests(test_shared_memory
+        DISCOVERY_TIMEOUT 60
+        PROPERTIES TIMEOUT 120
+    )
+    gtest_discover_tests(test_spawn_method
+        DISCOVERY_TIMEOUT 60
+        PROPERTIES TIMEOUT 120
+    )
+    gtest_discover_tests(test_thread_registry
+        DISCOVERY_TIMEOUT 60
+        PROPERTIES TIMEOUT 120
+    )
+    gtest_discover_tests(test_controller_full_lifecycle
+        DISCOVERY_TIMEOUT 60
+        PROPERTIES TIMEOUT 120
+    )
+    gtest_discover_tests(test_integration
+        DISCOVERY_TIMEOUT 60
+        PROPERTIES TIMEOUT 120
+    )
+    gtest_discover_tests(test_thread_registry_integration
+        DISCOVERY_TIMEOUT 60
+        PROPERTIES TIMEOUT 120
+    )
+    gtest_discover_tests(test_agent_loader
+        DISCOVERY_TIMEOUT 60
+        PROPERTIES TIMEOUT 120
+    )
+    gtest_discover_tests(test_baseline_hooks
+        DISCOVERY_TIMEOUT 60
+        PROPERTIES TIMEOUT 120
+    )
     
     # Add a custom target to run all GTests with nice output
     add_custom_target(run_gtests

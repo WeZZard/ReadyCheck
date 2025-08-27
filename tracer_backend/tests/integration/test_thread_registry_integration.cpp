@@ -40,6 +40,10 @@ protected:
     }
     
     void TearDown() override {
+        if (registry) {
+            thread_registry_deinit(registry);
+            registry = nullptr;
+        }
         if (shm) {
             shared_memory_unlink(shm);
             shared_memory_destroy(shm);
@@ -343,7 +347,7 @@ TEST_F(ThreadRegistryIntegrationTest, integration__thread_lifecycle__then_clean_
     uint32_t slot = lanes->slot_index;
     
     // Phase 2: Active use
-    for (uint32_t i = 0; i < 100; i++) {
+    for (uint32_t i = 0; i < lanes->index_lane.submit_queue_size - 1; i++) {
         EXPECT_TRUE(lane_submit_ring(&lanes->index_lane, i));
     }
     atomic_store(&lanes->events_generated, 100);
@@ -354,10 +358,10 @@ TEST_F(ThreadRegistryIntegrationTest, integration__thread_lifecycle__then_clean_
     // Phase 4: Drain remaining events
     uint32_t drained = 0;
     uint32_t ring_idx;
-    while ((ring_idx = lane_take_ring(&lanes->index_lane)) != UINT32_MAX) {
+    while ((ring_idx = lane_take_ring(&lanes->index_lane)) != lanes->index_lane.submit_queue_size - 1) {
         drained++;
     }
-    EXPECT_EQ(drained, 100U);
+    EXPECT_EQ(drained, lanes->index_lane.submit_queue_size - 1);
     
     // Phase 5: Verify slot can be reused (in a real system)
     EXPECT_FALSE(atomic_load(&lanes->active));

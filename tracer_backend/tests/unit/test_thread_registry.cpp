@@ -1,3 +1,5 @@
+#include "gtest/gtest.h"
+#include <cstdio>
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
 #include <thread>
@@ -12,16 +14,15 @@ extern "C" {
 #include "ring_buffer.h"
 }
 
+
 class ThreadRegistryTest : public ::testing::Test {
+
+private:
+    static SharedMemoryRef shm;
+
 protected:
     void SetUp() override {
-        // Create shared memory for testing
-        size_t size = 64 * 1024 * 1024;  // 64MB to accommodate all thread lanes
-        char name_buf[256];
-        shm = shared_memory_create_unique("test", getpid(), shared_memory_get_session_id(),
-                                         size, name_buf, sizeof(name_buf));
-        ASSERT_NE(shm, nullptr) << "Failed to create shared memory";
-        
+        fprintf(stderr, "SetUp\n");
         void* memory = shared_memory_get_address(shm);
         size_t shm_size = shared_memory_get_size(shm);
         
@@ -30,15 +31,33 @@ protected:
     }
 
     void TearDown() override {
-        if (shm) {
-            shared_memory_destroy(shm);
-        }
-        registry = nullptr;
+        thread_registry_deinit(registry);
+        this->registry = nullptr;
+        fprintf(stderr, "TearDown\n");
     }
 
-    SharedMemoryRef shm = nullptr;
+    static void SetUpTestSuite() {
+        // Create shared memory for testing
+        if (!shm) {
+            size_t size = 64 * 1024 * 1024;  // 64MB to accommodate all thread lanes
+            char name_buf[256];
+            shm = shared_memory_create_unique("test", getpid(), shared_memory_get_session_id(),
+                                             size, name_buf, sizeof(name_buf));
+            ASSERT_NE(shm, nullptr) << "Failed to create shared memory";
+        }
+    }
+
+    static void TearDownTestSuite() {
+        if (shm) {
+            shared_memory_destroy(shm);
+            shm = nullptr;
+        }
+    }
+
     ThreadRegistry* registry = nullptr;
 };
+
+SharedMemoryRef ThreadRegistryTest::shm = nullptr;
 
 // Test single thread registration
 TEST_F(ThreadRegistryTest, thread_registry__single_registration__then_succeeds) {
@@ -61,8 +80,6 @@ TEST_F(ThreadRegistryTest, thread_registry__single_registration__then_succeeds) 
 TEST_F(ThreadRegistryTest, thread_registry__duplicate_registration__then_returns_cached) {
     uint32_t tid = getpid();
     
-    needs_log_thread_registry_registry = true;
-
     ThreadLaneSet* lanes1 = thread_registry_register(registry, tid);
     ASSERT_NE(lanes1, nullptr);
 
@@ -71,8 +88,6 @@ TEST_F(ThreadRegistryTest, thread_registry__duplicate_registration__then_returns
     ThreadLaneSet* lanes2 = thread_registry_register(registry, tid);
     ASSERT_NE(lanes2, nullptr);
 
-    needs_log_thread_registry_registry = false;
-    
     EXPECT_EQ(lanes1, lanes2) << "Should return cached lanes on duplicate registration";
     EXPECT_EQ(atomic_load(&registry->thread_count), 1) << "Thread count should still be 1";
 }
