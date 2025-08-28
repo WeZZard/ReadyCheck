@@ -81,6 +81,18 @@ project-root/
 4. Progress tracking documents are MANDATORY for planning
 5. ALL builds go through root Cargo.toml - NEVER run CMake/pytest directly
 
+## 🔴 CRITICAL: Development Stage Rules
+
+**YOU MUST FOLLOW THE RULES FOR YOUR CURRENT STAGE:**
+
+- **[PLANNING](docs/engineering_efficiency/PLANNING.md)** - Requirements, design, interfaces
+- **[ARCHITECTING](docs/engineering_efficiency/ARCHITECTING.md)** - System design, technical decisions
+- **[CODING](docs/engineering_efficiency/CODING.md)** - Implementation (INCLUDES TEST ORCHESTRATION!)
+- **[TESTING](docs/engineering_efficiency/TESTING.md)** - Testing, coverage, quality gates
+- **[INTEGRATION](docs/engineering_efficiency/INTEGRATION.md)** - Commits, PRs, CI/CD
+
+⚠️ **MOST COMMON VIOLATION**: Forgetting to add tests to `build.rs` when adding to CMakeLists.txt
+
 ## MANDATORY: Build System
 
 **CARGO IS THE SINGLE DRIVER - NO EXCEPTIONS**
@@ -95,6 +107,13 @@ NEVER:
 - Run CMake directly
 - Run pytest outside of Cargo orchestration
 - Create custom build scripts
+
+**⚠️ CRITICAL GOTCHA - TESTS NEED TWO PLACES:**
+When adding C/C++ tests:
+1. ✅ CMakeLists.txt: `add_executable(test_xyz ...)`  
+2. ✅ **build.rs: `("build/test_xyz", "test/test_xyz")`** ← EASY TO FORGET!
+
+Missing step 2 = test won't be accessible via Cargo!
 
 ## MANDATORY: Quality Requirements
 
@@ -173,4 +192,3 @@ When working on this project:
 2. **Reuse** existing tools for everything else
 3. **Maintain** 100% quality gates
 4. **Follow** existing patterns in the codebase
-
