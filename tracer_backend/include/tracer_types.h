@@ -159,7 +159,7 @@ typedef struct __attribute__((aligned(CACHE_LINE_SIZE))) {
 // Aligned to cache line for optimal performance
 typedef struct __attribute__((aligned(CACHE_LINE_SIZE))) {
     // Thread identification
-    uint32_t thread_id;              // System thread ID
+    uintptr_t thread_id;             // System thread ID
     uint32_t slot_index;             // Index in registry (0-63)
     _Atomic(bool) active;            // Thread still alive
     

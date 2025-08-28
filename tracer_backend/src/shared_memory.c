@@ -19,11 +19,15 @@ typedef struct __SharedMemory {
     bool is_creator;
 } __SharedMemory;
 
-#if defined(NDEBUG)
+#define DEBUG 1
+
+#if DEBUG
 #define DEBUG_LOG(...) fprintf(stderr, __VA_ARGS__)
 #else
 #define DEBUG_LOG(...)
 #endif
+
+#define SHM_NAME_MAX 31
 
 // Simple 32-bit FNV-1a hash for short role identifiers
 static uint32_t shm_hash32(const char* s)
@@ -82,7 +86,8 @@ static void shared_memory_build_name(char* dst, size_t dst_len, const char* role
     }
     // We don't have to consider string length limit here; 
     // It is a hard-coded 256-character string.
-    snprintf(dst, dst_len, "/%s_%s_0x%x_0x%x", ADA_SHM_PREFIX, role, pid, session_id);
+    //                      /ADA_{16+}_0x00000000
+    snprintf(dst, dst_len, "/%s_%s_0x%x", ADA_SHM_PREFIX, role, pid ^ session_id);
 }
 
 
@@ -176,7 +181,7 @@ static SharedMemoryRef shared_memory_open(const char* name, size_t size) {
 
 SharedMemoryRef shared_memory_create_unique(const char* role, pid_t pid, uint32_t session_id,
                                           size_t size, char* out_name, size_t out_name_len) {
-    char name[256];
+    char name[SHM_NAME_MAX];
     memset(name, 0, sizeof(name));
     shared_memory_build_name(name, sizeof(name), role, pid, session_id);
     if (strlen(name) == 0) {

@@ -8,9 +8,6 @@ use std::os::raw::{c_char, c_uint};
 use std::path::Path;
 use std::ptr;
 
-// Registry implementation selector
-pub mod registry_selector;
-
 pub mod ffi {
     //! Foreign Function Interface bindings
     

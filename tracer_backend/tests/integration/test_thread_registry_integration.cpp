@@ -72,7 +72,7 @@ static void* agent_worker(void* arg) {
     AgentWorkerData* data = static_cast<AgentWorkerData*>(arg);
     
     // Register with the registry
-    data->lanes = thread_registry_register(data->registry, (uint32_t)(uintptr_t)pthread_self());
+    data->lanes = thread_registry_register(data->registry, (uintptr_t)pthread_self());
     if (!data->lanes) {
         printf("Thread %u: Failed to register\n", data->thread_num);
         return nullptr;
@@ -341,7 +341,7 @@ TEST_F(ThreadRegistryIntegrationTest, integration__thread_lifecycle__then_clean_
     // Test thread lifecycle: register -> active -> deactivate -> cleanup
     
     // Phase 1: Registration
-    ThreadLaneSet* lanes = thread_registry_register(registry, (uint32_t)(uintptr_t)pthread_self());
+    ThreadLaneSet* lanes = thread_registry_register(registry, (uintptr_t)pthread_self());
     ASSERT_NE(lanes, nullptr);
     EXPECT_TRUE(atomic_load(&lanes->active));
     uint32_t slot = lanes->slot_index;
@@ -392,7 +392,7 @@ TEST_F(ThreadRegistryIntegrationTest, integration__memory_barriers__then_correct
                       [](void* arg) -> void* {
                           auto* data = static_cast<ProducerData*>(arg);
                           
-                          ThreadLaneSet* lanes = thread_registry_register(data->registry, (uint32_t)(uintptr_t)pthread_self());
+                          ThreadLaneSet* lanes = thread_registry_register(data->registry, (uintptr_t)pthread_self());
                           if (!lanes) return nullptr;
                           
                           // Write sequence with proper ordering
@@ -472,7 +472,7 @@ TEST_F(ThreadRegistryIntegrationTest, integration__drain_iterator__then_sees_all
     std::vector<ThreadLaneSet*> lanes_list;
     
     for (int i = 0; i < NUM_THREADS; i++) {
-        ThreadLaneSet* lanes = thread_registry_register(registry, (uint32_t)(uintptr_t)pthread_self());
+        ThreadLaneSet* lanes = thread_registry_register(registry, (uintptr_t)pthread_self());
         ASSERT_NE(lanes, nullptr);
         lanes_list.push_back(lanes);
         
@@ -550,7 +550,7 @@ TEST_F(ThreadRegistryIntegrationTest, integration__high_frequency_events__then_h
                       [](void* arg) -> void* {
                           auto* worker = static_cast<HighFreqWorker*>(arg);
                           
-                          worker->lanes = thread_registry_register(worker->registry, (uint32_t)(uintptr_t)pthread_self());
+                          worker->lanes = thread_registry_register(worker->registry, (uintptr_t)pthread_self());
                           if (!worker->lanes) return nullptr;
                           
                           // Blast events as fast as possible
@@ -607,7 +607,7 @@ TEST_F(ThreadRegistryIntegrationTest, integration__high_frequency_events__then_h
 TEST_F(ThreadRegistryIntegrationTest, integration__cross_thread_visibility__then_consistent_state) {
     // Test that thread state changes are visible across threads
     
-    ThreadLaneSet* lanes = thread_registry_register(registry, (uint32_t)(uintptr_t)pthread_self());
+    ThreadLaneSet* lanes = thread_registry_register(registry, (uintptr_t)pthread_self());
     ASSERT_NE(lanes, nullptr);
     
     std::atomic<bool> phase1_done(false);

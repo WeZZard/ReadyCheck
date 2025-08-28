@@ -107,7 +107,7 @@ static ThreadLocalData *get_thread_local(void) {
 #ifdef __APPLE__
     tls->thread_id = pthread_mach_thread_np(pthread_self());
 #else
-    tls->thread_id = (uint32_t)(uintptr_t)pthread_self();
+    tls->thread_id = (uintptr_t)pthread_self();
 #endif
     pthread_setspecific(g_tls_key, tls);
   }

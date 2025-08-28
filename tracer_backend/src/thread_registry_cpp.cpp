@@ -8,7 +8,7 @@
 namespace ada {
 
 // Static TLS for fast path
-thread_local ThreadLaneSet* tls_my_lanes_cpp = nullptr;
+thread_local ThreadLaneSetCpp* tls_my_lanes_cpp = nullptr;
 
 }  // namespace ada
 
@@ -19,6 +19,12 @@ thread_local ThreadLaneSet* tls_my_lanes_cpp = nullptr;
 extern "C" {
 
 #include "thread_registry.h"
+
+// TLS variable for C compatibility
+__thread ThreadLaneSet* tls_my_lanes = nullptr;
+
+// Forward declaration
+void thread_registry_set_my_lanes(ThreadLaneSet* lanes);
 
 // Use C++ implementation but expose C interface
 ThreadRegistry* thread_registry_init(void* memory, size_t size) {
@@ -32,14 +38,21 @@ void thread_registry_deinit(ThreadRegistry* registry) {
     cpp_registry->~ThreadRegistryCpp();
 }
 
-ThreadLaneSet* thread_registry_register(ThreadRegistry* registry, uint32_t thread_id) {
+ThreadLaneSet* thread_registry_register(ThreadRegistry* registry, uintptr_t thread_id) {
     if (!registry) return nullptr;
     auto* cpp_registry = reinterpret_cast<ada::ThreadRegistryCpp*>(registry);
     auto* cpp_lanes = cpp_registry->register_thread(thread_id);
-    return reinterpret_cast<ThreadLaneSet*>(cpp_lanes);
+    ThreadLaneSet* lanes = reinterpret_cast<ThreadLaneSet*>(cpp_lanes);
+    
+    // Set TLS for fast path access
+    if (lanes) {
+        thread_registry_set_my_lanes(lanes);
+    }
+    
+    return lanes;
 }
 
-ThreadLaneSet* thread_registry_get_thread_lanes(ThreadRegistry* registry, uint32_t thread_id) {
+ThreadLaneSet* thread_registry_get_thread_lanes(ThreadRegistry* registry, uintptr_t thread_id) {
     if (!registry) return nullptr;
     auto* cpp_registry = reinterpret_cast<ada::ThreadRegistryCpp*>(registry);
     
@@ -54,14 +67,21 @@ ThreadLaneSet* thread_registry_get_thread_lanes(ThreadRegistry* registry, uint32
 }
 
 ThreadLaneSet* thread_registry_get_my_lanes(void) {
-    return reinterpret_cast<ThreadLaneSet*>(ada::tls_my_lanes_cpp);
+    return tls_my_lanes;
 }
 
 void thread_registry_set_my_lanes(ThreadLaneSet* lanes) {
+    tls_my_lanes = lanes;
     ada::tls_my_lanes_cpp = reinterpret_cast<ada::ThreadLaneSetCpp*>(lanes);
 }
 
-bool thread_registry_unregister(ThreadRegistry* registry, uint32_t thread_id) {
+void thread_registry_unregister(ThreadLaneSet* lanes) {
+    if (!lanes) return;
+    auto* cpp_lanes = reinterpret_cast<ada::ThreadLaneSetCpp*>(lanes);
+    cpp_lanes->active.store(false);
+}
+
+bool thread_registry_unregister_by_id(ThreadRegistry* registry, uintptr_t thread_id) {
     if (!registry) return false;
     auto* cpp_registry = reinterpret_cast<ada::ThreadRegistryCpp*>(registry);
     
@@ -86,6 +106,16 @@ uint32_t thread_registry_get_active_count(ThreadRegistry* registry) {
         }
     }
     return count;
+}
+
+ThreadLaneSet* thread_registry_get_thread_at(ThreadRegistry* registry, uint32_t index) {
+    if (!registry || index >= MAX_THREADS) return nullptr;
+    auto* cpp_registry = reinterpret_cast<ada::ThreadRegistryCpp*>(registry);
+    
+    if (index >= cpp_registry->thread_count.load()) return nullptr;
+    if (!cpp_registry->thread_lanes[index].active.load()) return nullptr;
+    
+    return reinterpret_cast<ThreadLaneSet*>(&cpp_registry->thread_lanes[index]);
 }
 
 void thread_registry_stop_accepting(ThreadRegistry* registry) {
@@ -158,11 +188,7 @@ uint32_t lane_get_free_ring(Lane* lane) {
     return ring_idx;
 }
 
-RingBuffer* lane_get_active_ring(Lane* lane) {
-    if (!lane) return nullptr;
-    auto* cpp_lane = reinterpret_cast<ada::LaneCpp*>(lane);
-    return cpp_lane->get_active_ring();
-}
+// lane_get_active_ring is already defined as inline in header
 
 bool lane_swap_active_ring(Lane* lane) {
     if (!lane) return false;
@@ -187,7 +213,16 @@ void thread_registry_dump(ThreadRegistry* registry) {
 }
 
 size_t thread_registry_calculate_memory_size(void) {
-    return ada::ThreadRegistryCpp::totalSizeNeeded(MAX_THREADS);
+    // Calculate total memory needed:
+    // - ThreadRegistryCpp object + trailing LaneMemoryLayout structures
+    size_t struct_size = ada::ThreadRegistryCpp::totalSizeNeeded(MAX_THREADS, MAX_THREADS);
+    
+    // - Ring buffer memory for all lanes
+    size_t index_ring_total = MAX_THREADS * RINGS_PER_INDEX_LANE * 64 * 1024;  // 64KB per ring
+    size_t detail_ring_total = MAX_THREADS * RINGS_PER_DETAIL_LANE * 256 * 1024; // 256KB per ring
+    size_t ring_memory_total = index_ring_total + detail_ring_total;
+    
+    return struct_size + ring_memory_total;
 }
 
 }  // extern "C"

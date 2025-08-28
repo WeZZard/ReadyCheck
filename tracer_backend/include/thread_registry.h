@@ -37,7 +37,7 @@ ThreadRegistry* thread_registry_attach(void* memory);
 // thread_id: system thread ID for this thread
 // Returns: pointer to ThreadLaneSet for this thread, or NULL if full
 // Memory ordering: Uses memory_order_acq_rel for slot allocation
-ThreadLaneSet* thread_registry_register(ThreadRegistry* registry, uint32_t thread_id);
+ThreadLaneSet* thread_registry_register(ThreadRegistry* registry, uintptr_t thread_id);
 
 extern bool needs_log_thread_registry_registry;
 

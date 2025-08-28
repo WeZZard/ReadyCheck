@@ -47,10 +47,6 @@ fn main() {
     }
     
     // Enable C++ registry if feature is set
-    if env::var("CARGO_FEATURE_USE_CPP_REGISTRY").is_ok() {
-        cmake_config.define("USE_CPP_REGISTRY", "ON");
-        println!("cargo:warning=Building with C++ thread registry implementation");
-    }
     
     let dst = cmake_config.build();
     
@@ -151,7 +147,6 @@ fn main() {
         ("build/test_spawn_method", "test/test_spawn_method"),
         ("build/test_thread_registry", "test/test_thread_registry"),
         ("build/test_thread_registry_cpp", "test/test_thread_registry_cpp"),
-        ("build/test_registry_migration", "test/test_registry_migration"),
         ("build/test_thread_registry_integration", "test/test_thread_registry_integration"),
         ("build/test_controller_full_lifecycle", "test/test_controller_full_lifecycle"),
         ("build/test_integration", "test/test_integration"),
@@ -181,7 +176,7 @@ fn main() {
     };
     
     for (src_ext, _dst_ext) in lib_ext {
-        let pattern = format!("lib/*.{}", src_ext);
+        let _pattern = format!("lib/*.{}", src_ext);
         if let Ok(entries) = std::fs::read_dir(dst.join("lib")) {
             for entry in entries.flatten() {
                 let path = entry.path();

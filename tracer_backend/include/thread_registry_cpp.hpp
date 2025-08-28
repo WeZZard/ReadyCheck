@@ -3,6 +3,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <memory>
 #include <array>
@@ -77,9 +78,9 @@ struct LaneMemoryLayout {
     // Ring buffer pointers array
     RingBuffer* ring_ptrs[RINGS_PER_INDEX_LANE];
     
-    // Ring buffer memory - explicitly sized
-    alignas(CACHE_LINE_SIZE) 
-    uint8_t ring_memory[RINGS_PER_INDEX_LANE][64 * 1024];
+    // Pointer to ring buffer memory (allocated separately)
+    void* ring_memory_base;
+    size_t ring_memory_size;
     
     // SPSC queues - explicit arrays
     alignas(CACHE_LINE_SIZE)
@@ -92,7 +93,7 @@ struct LaneMemoryLayout {
     void debug_print() const {
         printf("LaneMemoryLayout at %p:\n", this);
         printf("  ring_ptrs:    %p - %p\n", ring_ptrs, ring_ptrs + RINGS_PER_INDEX_LANE);
-        printf("  ring_memory:  %p - %p\n", ring_memory, ring_memory + RINGS_PER_INDEX_LANE);
+        printf("  ring_memory:  %p (size=%zu)\n", ring_memory_base, ring_memory_size);
         printf("  submit_queue: %p - %p\n", submit_queue, submit_queue + QUEUE_COUNT_INDEX_LANE);
         printf("  free_queue:   %p - %p\n", free_queue, free_queue + QUEUE_COUNT_INDEX_LANE);
     }
@@ -127,13 +128,16 @@ public:
         memory_layout = layout;
         ring_count = num_rings;
         
-        // Initialize ring buffers with clear structure
-        for (uint32_t i = 0; i < num_rings; ++i) {
-            layout->ring_ptrs[i] = ring_buffer_create(
-                layout->ring_memory[i], 
-                ring_size, 
-                event_size
-            );
+        // Initialize ring buffers using the pre-allocated memory
+        if (layout->ring_memory_base) {
+            uint8_t* ring_mem = static_cast<uint8_t*>(layout->ring_memory_base);
+            for (uint32_t i = 0; i < num_rings; ++i) {
+                layout->ring_ptrs[i] = ring_buffer_create(
+                    ring_mem + (i * ring_size), 
+                    ring_size, 
+                    event_size
+                );
+            }
         }
         
         // Initialize free queue with all rings except active (0)
@@ -183,7 +187,7 @@ public:
 class alignas(CACHE_LINE_SIZE) ThreadLaneSetCpp {
 public:
     // Thread identification
-    uint32_t thread_id{0};
+    uintptr_t thread_id{0};
     uint32_t slot_index{0};
     std::atomic<bool> active{false};
     
@@ -196,7 +200,7 @@ public:
     std::atomic<uint64_t> last_event_timestamp{0};
     
     // Initialize with structured memory blocks
-    void initialize(uint32_t tid, uint32_t slot,
+    void initialize(uintptr_t tid, uint32_t slot,
                    LaneMemoryLayout* index_memory,
                    LaneMemoryLayout* detail_memory) {
         thread_id = tid;
@@ -210,7 +214,7 @@ public:
     
     // Debug helper
     void debug_print() const {
-        printf("ThreadLaneSet[%u] (tid=%u):\n", slot_index, thread_id);
+        printf("ThreadLaneSet[%u] (tid=%lx):\n", slot_index, (unsigned long)thread_id);
         printf("  active: %s\n", active.load() ? "yes" : "no");
         printf("  events_generated: %llu\n", (unsigned long long)events_generated.load());
         printf("  Index Lane:\n");
@@ -243,9 +247,18 @@ public:
     
     // Factory method for creating with proper memory layout
     static ThreadRegistryCpp* create(void* memory, size_t size) {
-        // Calculate memory needed
-        size_t needed = sizeof(ThreadRegistryCpp) + 
-                       (MAX_THREADS * sizeof(LaneMemoryLayout) * 2); // index + detail
+        // Calculate memory needed:
+        // - ThreadRegistryCpp object itself
+        // - LaneMemoryLayout structures (2 per thread)
+        // - Ring buffer memory for all lanes
+        size_t struct_size = sizeof(ThreadRegistryCpp) + 
+                            (MAX_THREADS * sizeof(LaneMemoryLayout) * 2); // index + detail layouts
+        
+        size_t index_ring_total = MAX_THREADS * RINGS_PER_INDEX_LANE * 64 * 1024;  // 64KB per ring
+        size_t detail_ring_total = MAX_THREADS * RINGS_PER_DETAIL_LANE * 256 * 1024; // 256KB per ring
+        size_t ring_memory_total = index_ring_total + detail_ring_total;
+        
+        size_t needed = struct_size + ring_memory_total;
         
         if (size < needed) {
             fprintf(stderr, "Insufficient memory: need %zu, got %zu\n", needed, size);
@@ -260,8 +273,22 @@ public:
         auto* index_layouts = registry->getTrailingObject<LaneMemoryLayout>(0);
         auto* detail_layouts = registry->getTrailingObject<LaneMemoryLayout>(MAX_THREADS);
         
+        // Calculate where ring buffer memory starts (after all structures)
+        uint8_t* ring_memory_start = static_cast<uint8_t*>(memory) + struct_size;
+        uint8_t* current_ring_mem = ring_memory_start;
+        
         // Initialize each thread lane with structured memory
         for (uint32_t i = 0; i < MAX_THREADS; ++i) {
+            // Set up index lane memory layout
+            index_layouts[i].ring_memory_base = current_ring_mem;
+            index_layouts[i].ring_memory_size = RINGS_PER_INDEX_LANE * 64 * 1024;
+            current_ring_mem += index_layouts[i].ring_memory_size;
+            
+            // Set up detail lane memory layout
+            detail_layouts[i].ring_memory_base = current_ring_mem;
+            detail_layouts[i].ring_memory_size = RINGS_PER_DETAIL_LANE * 256 * 1024;
+            current_ring_mem += detail_layouts[i].ring_memory_size;
+            
             // Don't call initialize yet - just set slot index
             registry->thread_lanes[i].slot_index = i;
             registry->thread_lanes[i].thread_id = 0;
@@ -276,7 +303,7 @@ public:
     }
     
     // Register thread with better error handling
-    ThreadLaneSetCpp* register_thread(uint32_t thread_id) {
+    ThreadLaneSetCpp* register_thread(uintptr_t thread_id) {
         if (!accepting_registrations.load(std::memory_order_acquire)) {
             return nullptr;
         }
@@ -353,28 +380,8 @@ public:
 // C compatibility layer
 // ============================================================================
 
-extern "C" {
-
-// C-compatible creation function
-ThreadRegistry* thread_registry_create_cpp(void* memory, size_t size) {
-    auto* cpp_registry = ThreadRegistryCpp::create(memory, size);
-    return reinterpret_cast<ThreadRegistry*>(cpp_registry);
-}
-
-// C-compatible registration
-ThreadLaneSet* thread_registry_register_cpp(ThreadRegistry* registry, uint32_t thread_id) {
-    auto* cpp_registry = reinterpret_cast<ThreadRegistryCpp*>(registry);
-    auto* cpp_lanes = cpp_registry->register_thread(thread_id);
-    return reinterpret_cast<ThreadLaneSet*>(cpp_lanes);
-}
-
-// C-compatible debug dump
-void thread_registry_dump_cpp(ThreadRegistry* registry) {
-    auto* cpp_registry = reinterpret_cast<ThreadRegistryCpp*>(registry);
-    cpp_registry->debug_dump();
-}
-
-} // extern "C"
+// Note: C compatibility layer is implemented in thread_registry_cpp.cpp
+// to avoid duplicate symbols and provide proper separation
 
 } // namespace ada
 

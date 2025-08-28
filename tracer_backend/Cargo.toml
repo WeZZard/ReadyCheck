@@ -31,7 +31,6 @@ path = "src/bin/tracer.rs"
 default = []
 integration-tests = []
 coverage = []  # Enable coverage instrumentation for C/C++ code
-use-cpp-registry = []  # Use C++ thread registry implementation instead of C
 
 [dev-dependencies]
 tempfile = "3.8"
