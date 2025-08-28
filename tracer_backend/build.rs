@@ -46,6 +46,12 @@ fn main() {
         // Don't set LLVM_PROFILE_FILE here - it should be set at runtime when tests execute
     }
     
+    // Enable C++ registry if feature is set
+    if env::var("CARGO_FEATURE_USE_CPP_REGISTRY").is_ok() {
+        cmake_config.define("USE_CPP_REGISTRY", "ON");
+        println!("cargo:warning=Building with C++ thread registry implementation");
+    }
+    
     let dst = cmake_config.build();
     
     // Report the location of compile_commands.json for IDE consumption
@@ -145,6 +151,7 @@ fn main() {
         ("build/test_spawn_method", "test/test_spawn_method"),
         ("build/test_thread_registry", "test/test_thread_registry"),
         ("build/test_thread_registry_cpp", "test/test_thread_registry_cpp"),
+        ("build/test_registry_migration", "test/test_registry_migration"),
         ("build/test_thread_registry_integration", "test/test_thread_registry_integration"),
         ("build/test_controller_full_lifecycle", "test/test_controller_full_lifecycle"),
         ("build/test_integration", "test/test_integration"),

@@ -85,11 +85,22 @@ message(STATUS "Found Frida Gum: ${FRIDA_GUM_LIBRARY}")
 # ===========================================
 # Shared utilities library
 # ===========================================
-add_library(tracer_utils STATIC
+# Source files list
+set(UTILS_SOURCES
     src/shared_memory.c
     src/ring_buffer.c
-    src/thread_registry.c
 )
+
+# Add thread registry implementation based on feature flag
+if(USE_CPP_REGISTRY)
+    message(STATUS "Using C++ thread registry implementation")
+    list(APPEND UTILS_SOURCES src/thread_registry_cpp.cpp)
+else()
+    message(STATUS "Using C thread registry implementation")
+    list(APPEND UTILS_SOURCES src/thread_registry.c)
+endif()
+
+add_library(tracer_utils STATIC ${UTILS_SOURCES})
 
 target_include_directories(tracer_utils PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -427,6 +438,25 @@ if(BUILD_TESTING)
     )
     
     target_link_libraries(test_thread_registry_cpp
+        PRIVATE
+            GTest::gtest
+            GTest::gmock
+            tracer_utils
+            Threads::Threads
+    )
+    
+    # Registry migration validation test
+    add_executable(test_registry_migration
+        tests/unit/test_registry_migration.cpp
+        tests/test_main.cpp
+    )
+    
+    target_include_directories(test_registry_migration
+        PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/include
+    )
+    
+    target_link_libraries(test_registry_migration
         PRIVATE
             GTest::gtest
             GTest::gmock
