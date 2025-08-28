@@ -75,8 +75,8 @@ private:
 
 // Memory layout for a single lane - EXPLICIT structure, not pointer arithmetic
 struct LaneMemoryLayout {
-    // Ring buffer pointers array
-    RingBuffer* ring_ptrs[RINGS_PER_INDEX_LANE];
+    // Ring buffer pointers array (just void* to memory regions)
+    void* ring_ptrs[RINGS_PER_INDEX_LANE];
     
     // Pointer to ring buffer memory (allocated separately)
     void* ring_memory_base;
@@ -125,26 +125,36 @@ public:
     
     // Initialize lane with structured memory
     void initialize(LaneMemoryLayout* layout, uint32_t num_rings, size_t ring_size, size_t event_size) {
+        printf("DEBUG: LaneCpp::initialize start - num_rings=%u, ring_size=%zu\n", num_rings, ring_size);
         memory_layout = layout;
         ring_count = num_rings;
         
-        // Initialize ring buffers using the pre-allocated memory
+        // Ring buffers are already set up in memory, just verify pointers
         if (layout->ring_memory_base) {
-            uint8_t* ring_mem = static_cast<uint8_t*>(layout->ring_memory_base);
+            printf("DEBUG: Verifying %u ring buffer pointers\n", num_rings);
             for (uint32_t i = 0; i < num_rings; ++i) {
-                layout->ring_ptrs[i] = ring_buffer_create(
-                    ring_mem + (i * ring_size), 
-                    ring_size, 
-                    event_size
-                );
+                if (!layout->ring_ptrs[i]) {
+                    printf("DEBUG: ERROR - ring_ptrs[%u] is NULL!\n", i);
+                } else {
+                    printf("DEBUG: Ring[%u] at %p\n", i, layout->ring_ptrs[i]);
+                }
             }
+        } else {
+            printf("DEBUG: ERROR - ring_memory_base is NULL!\n");
         }
         
+        printf("DEBUG: Initializing free queue with num_rings=%u\n", num_rings);
         // Initialize free queue with all rings except active (0)
         for (uint32_t i = 1; i < num_rings; ++i) {
+            printf("DEBUG: Setting free_queue[%u] = %u\n", i-1, i);
+            fflush(stdout);
             layout->free_queue[i - 1] = i;
+            printf("DEBUG: free_queue[%u] set successfully\n", i-1);
+            fflush(stdout);
         }
+        printf("DEBUG: Setting free_tail to %u\n", num_rings - 1);
         free_tail.store(num_rings - 1, std::memory_order_release);
+        printf("DEBUG: LaneCpp::initialize complete\n");
     }
     
     // Submit ring for draining (with bounds checking)
@@ -163,7 +173,7 @@ public:
     }
     
     // Get active ring buffer
-    RingBuffer* get_active_ring() {
+    void* get_active_ring() {
         auto idx = active_idx.load(std::memory_order_relaxed);
         return memory_layout->ring_ptrs[idx];
     }
@@ -203,13 +213,18 @@ public:
     void initialize(uintptr_t tid, uint32_t slot,
                    LaneMemoryLayout* index_memory,
                    LaneMemoryLayout* detail_memory) {
+        printf("DEBUG: ThreadLaneSet::initialize start - tid=%lx, slot=%u\n", tid, slot);
         thread_id = tid;
         slot_index = slot;
         
+        printf("DEBUG: Initializing index_lane\n");
         index_lane.initialize(index_memory, RINGS_PER_INDEX_LANE, 64 * 1024, sizeof(IndexEvent));
+        printf("DEBUG: Initializing detail_lane\n");
         detail_lane.initialize(detail_memory, RINGS_PER_DETAIL_LANE, 256 * 1024, sizeof(DetailEvent));
         
+        printf("DEBUG: Setting active flag\n");
         active.store(true, std::memory_order_release);
+        printf("DEBUG: ThreadLaneSet::initialize complete\n");
     }
     
     // Debug helper
@@ -282,11 +297,25 @@ public:
             // Set up index lane memory layout
             index_layouts[i].ring_memory_base = current_ring_mem;
             index_layouts[i].ring_memory_size = RINGS_PER_INDEX_LANE * 64 * 1024;
+            
+            // Initialize ring pointers for index lane
+            uint8_t* ring_ptr = current_ring_mem;
+            for (uint32_t j = 0; j < RINGS_PER_INDEX_LANE; ++j) {
+                index_layouts[i].ring_ptrs[j] = ring_ptr;
+                ring_ptr += 64 * 1024;
+            }
             current_ring_mem += index_layouts[i].ring_memory_size;
             
             // Set up detail lane memory layout
             detail_layouts[i].ring_memory_base = current_ring_mem;
             detail_layouts[i].ring_memory_size = RINGS_PER_DETAIL_LANE * 256 * 1024;
+            
+            // Initialize ring pointers for detail lane
+            ring_ptr = current_ring_mem;
+            for (uint32_t j = 0; j < RINGS_PER_DETAIL_LANE; ++j) {
+                detail_layouts[i].ring_ptrs[j] = ring_ptr;
+                ring_ptr += 256 * 1024;
+            }
             current_ring_mem += detail_layouts[i].ring_memory_size;
             
             // Don't call initialize yet - just set slot index
@@ -305,21 +334,26 @@ public:
     // Register thread with better error handling
     ThreadLaneSetCpp* register_thread(uintptr_t thread_id) {
         if (!accepting_registrations.load(std::memory_order_acquire)) {
+            printf("DEBUG: Not accepting registrations\n");
             return nullptr;
         }
         
         // Try to find existing registration
-        for (uint32_t i = 0; i < thread_count.load(); ++i) {
+        uint32_t current_count = thread_count.load();
+        for (uint32_t i = 0; i < current_count; ++i) {
             if (thread_lanes[i].thread_id == thread_id && 
                 thread_lanes[i].active.load()) {
+                printf("DEBUG: Thread %lx already registered at slot %u\n", thread_id, i);
                 return &thread_lanes[i];  // Already registered
             }
         }
         
         // Allocate new slot
         uint32_t slot = thread_count.fetch_add(1, std::memory_order_acq_rel);
+        printf("DEBUG: Allocating slot %u for thread %lx (MAX_THREADS=%u)\n", slot, thread_id, MAX_THREADS);
         if (slot >= MAX_THREADS) {
             thread_count.fetch_sub(1, std::memory_order_acq_rel);
+            printf("DEBUG: Out of slots! slot=%u >= MAX_THREADS=%u\n", slot, MAX_THREADS);
             return nullptr;
         }
         
@@ -336,6 +370,8 @@ public:
             thread_lanes[slot].active.store(true, std::memory_order_release);
         }
         
+        printf("DEBUG: Returning thread_lanes[%u] at %p\n", slot, &thread_lanes[slot]);
+        fflush(stdout);
         return &thread_lanes[slot];
     }
     
