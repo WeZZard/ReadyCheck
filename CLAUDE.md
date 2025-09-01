@@ -90,6 +90,7 @@ project-root/
 - **[CODING](docs/engineering_efficiency/CODING.md)** - Implementation (INCLUDES TEST ORCHESTRATION!)
 - **[TESTING](docs/engineering_efficiency/TESTING.md)** - Testing, coverage, quality gates
 - **[INTEGRATION](docs/engineering_efficiency/INTEGRATION.md)** - Commits, PRs, CI/CD
+- **[DEBUGGING](docs/engineering_efficiency/DEBUGGING.md)** - Debugging to pay attention.
 
 ⚠️ **MOST COMMON VIOLATION**: Forgetting to add tests to `build.rs` when adding to CMakeLists.txt
 
