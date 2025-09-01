@@ -1,7 +1,7 @@
 #ifndef FRIDA_CONTROLLER_H
 #define FRIDA_CONTROLLER_H
 
-#include "tracer_types.h"
+#include <tracer_backend/utils/tracer_types.h>
 #include <frida-core.h>
 
 #ifdef __cplusplus

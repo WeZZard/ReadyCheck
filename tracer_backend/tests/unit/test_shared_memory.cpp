@@ -8,8 +8,8 @@
 #include <vector>
 
 extern "C" {
-    #include "shared_memory.h"
-    #include "tracer_types.h"
+    #include <tracer_backend/utils/shared_memory.h>
+    #include <tracer_backend/utils/tracer_types.h>
 }
 
 using ::testing::_;

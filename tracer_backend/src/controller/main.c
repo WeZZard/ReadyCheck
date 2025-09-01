@@ -1,4 +1,4 @@
-#include "frida_controller.h"
+#include <tracer_backend/controller/frida_controller.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

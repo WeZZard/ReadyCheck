@@ -1,7 +1,7 @@
-#include "frida_controller.h"
-#include "shared_memory.h"
-#include "ring_buffer.h"
-#include "tracer_types.h"
+#include <tracer_backend/controller/frida_controller.h>
+#include <tracer_backend/utils/shared_memory.h>
+#include <tracer_backend/utils/ring_buffer.h>
+#include <tracer_backend/utils/tracer_types.h>
 #include <frida-core.h>
 #include <stdlib.h>
 #include <string.h>

@@ -7,11 +7,11 @@
 
 // Include both C and C++ headers
 extern "C" {
-#include "shared_memory.h"
-#include "ring_buffer.h"
+#include <tracer_backend/utils/shared_memory.h>
+#include <tracer_backend/utils/ring_buffer.h>
 }
 
-#include "thread_registry_cpp.hpp"
+#include "thread_registry_private.h"
 
 using namespace ada;
 

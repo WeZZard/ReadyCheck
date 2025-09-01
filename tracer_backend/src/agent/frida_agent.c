@@ -1,6 +1,6 @@
-#include "ring_buffer.h"
-#include "shared_memory.h"
-#include "tracer_types.h"
+#include <tracer_backend/utils/ring_buffer.h>
+#include <tracer_backend/utils/shared_memory.h>
+#include <tracer_backend/utils/tracer_types.h>
 #include <frida-gum.h>
 #include <stdint.h>
 

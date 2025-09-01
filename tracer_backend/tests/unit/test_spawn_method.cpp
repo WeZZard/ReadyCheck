@@ -9,7 +9,7 @@
 #include <sys/wait.h>
 
 extern "C" {
-    #include "frida_controller.h"
+    #include <tracer_backend/controller/frida_controller.h>
     #include "ada_paths.h"
 }
 

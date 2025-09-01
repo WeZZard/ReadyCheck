@@ -4,8 +4,8 @@
 #include <cstring>
 
 extern "C" {
-    #include "ring_buffer.h"
-    #include "tracer_types.h"
+    #include <tracer_backend/utils/ring_buffer.h>
+    #include <tracer_backend/utils/tracer_types.h>
 }
 
 class RingBufferAttachTest : public ::testing::Test {

@@ -1,15 +1,15 @@
-#ifndef THREAD_REGISTRY_CPP_HPP
-#define THREAD_REGISTRY_CPP_HPP
+#ifndef THREAD_REGISTRY_PRIVATE_H
+#define THREAD_REGISTRY_PRIVATE_H
 
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
-#include <memory>
-#include <array>
-#include <type_traits>
-#include "tracer_types.h"
-#include "ring_buffer.h"
+#include <new>
+#include <tracer_backend/utils/tracer_types.h>
+#include <tracer_backend/utils/ring_buffer.h>
+// Need private definitions for concrete implementation
+#include "tracer_types_private.h"
 
 // ============================================================================
 // CRTP Base for objects with tail-allocated data (LLVM-style)
@@ -416,9 +416,9 @@ public:
 // C compatibility layer
 // ============================================================================
 
-// Note: C compatibility layer is implemented in thread_registry_cpp.cpp
+// Note: C compatibility layer is implemented in thread_registry.cpp
 // to avoid duplicate symbols and provide proper separation
 
 } // namespace ada
 
-#endif // THREAD_REGISTRY_CPP_HPP
+#endif // THREAD_REGISTRY_PRIVATE_H

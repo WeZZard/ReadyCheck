@@ -87,15 +87,18 @@ message(STATUS "Found Frida Gum: ${FRIDA_GUM_LIBRARY}")
 # ===========================================
 # Source files list
 set(UTILS_SOURCES
-    src/shared_memory.c
-    src/ring_buffer.c
-    src/thread_registry_cpp.cpp
+    src/utils/shared_memory.c
+    src/utils/ring_buffer.c
+    src/utils/thread_registry.cpp
 )
 
 add_library(tracer_utils STATIC ${UTILS_SOURCES})
 
-target_include_directories(tracer_utils PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
+target_include_directories(tracer_utils
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/utils
 )
 
 target_link_libraries(tracer_utils
@@ -107,7 +110,7 @@ target_link_libraries(tracer_utils
 # Controller Library (runs in tracer process)
 # ===========================================
 add_library(tracer_controller STATIC
-    src/frida_controller.c
+    src/controller/frida_controller.c
 )
 
 target_include_directories(tracer_controller
@@ -146,7 +149,7 @@ endif()
 # Agent Library (injected into target process)
 # ===========================================
 add_library(frida_agent SHARED
-    src/frida_agent.c
+    src/agent/frida_agent.c
 )
 
 target_include_directories(frida_agent
@@ -221,7 +224,7 @@ endif()
 # Main tracer executable
 # ===========================================
 add_executable(tracer_poc
-    src/main.c
+    src/controller/main.c
 )
 
 target_include_directories(tracer_poc
@@ -345,7 +348,8 @@ if(BUILD_TESTING)
     
     target_include_directories(test_thread_registry
         PRIVATE
-            ${CMAKE_CURRENT_SOURCE_DIR}/include
+            ${CMAKE_CURRENT_SOURCE_DIR}/include/utils
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/utils  # For thread_registry_private.h
     )
     
     target_link_libraries(test_thread_registry
@@ -408,6 +412,7 @@ if(BUILD_TESTING)
     target_include_directories(test_thread_registry_integration
         PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR}/include
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/utils  # Add src for private headers
     )
     
     target_link_libraries(test_thread_registry_integration
@@ -420,13 +425,14 @@ if(BUILD_TESTING)
     
     # C++ Thread Registry test
     add_executable(test_thread_registry_cpp
-        tests/unit/test_thread_registry_cpp.cpp
+        tests/unit/test_thread_registry.cpp
         tests/test_main.cpp
     )
     
     target_include_directories(test_thread_registry_cpp
         PRIVATE
-            ${CMAKE_CURRENT_SOURCE_DIR}/include
+            ${CMAKE_CURRENT_SOURCE_DIR}/include/utils
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/utils  # For thread_registry_private.h
     )
     
     target_link_libraries(test_thread_registry_cpp

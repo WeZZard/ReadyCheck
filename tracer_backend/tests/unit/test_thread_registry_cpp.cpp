@@ -9,7 +9,7 @@ extern "C" {
 #include "shared_memory.h"
 }
 
-#include "thread_registry_cpp.hpp"
+#include "thread_registry_private.h"
 
 using namespace ada;
 

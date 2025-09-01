@@ -1,4 +1,4 @@
-#include "ring_buffer.h"
+#include <tracer_backend/utils/ring_buffer.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdatomic.h>

@@ -1,6 +1,7 @@
-// thread_registry_cpp.cpp - C++ implementation with C compatibility layer
+// thread_registry.cpp - C++ implementation with C compatibility layer
 
-#include "thread_registry_cpp.hpp"
+#include "thread_registry_private.h"
+#include "tracer_types_private.h"
 #include <cstdlib>
 #include <cstring>
 #include <cassert>
@@ -18,7 +19,7 @@ thread_local ThreadLaneSetCpp* tls_my_lanes_cpp = nullptr;
 
 extern "C" {
 
-#include "thread_registry.h"
+#include <tracer_backend/utils/thread_registry.h>
 
 // TLS variable for C compatibility
 __thread ThreadLaneSet* tls_my_lanes = nullptr;
@@ -79,6 +80,12 @@ void thread_registry_unregister(ThreadLaneSet* lanes) {
     if (!lanes) return;
     auto* cpp_lanes = reinterpret_cast<ada::ThreadLaneSetCpp*>(lanes);
     cpp_lanes->active.store(false);
+}
+
+struct RingBuffer* lane_get_active_ring(Lane* lane) {
+    if (!lane) return nullptr;
+    uint32_t idx = atomic_load_explicit(&lane->active_idx, memory_order_relaxed);
+    return lane->rings[idx];
 }
 
 bool thread_registry_unregister_by_id(ThreadRegistry* registry, uintptr_t thread_id) {

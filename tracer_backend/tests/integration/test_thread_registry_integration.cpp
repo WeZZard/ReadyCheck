@@ -13,9 +13,11 @@
 #include <set>
 
 extern "C" {
-    #include "thread_registry.h"
-    #include "shared_memory.h"
-    #include "tracer_types.h"
+    #include <tracer_backend/utils/thread_registry.h>
+    #include <tracer_backend/utils/shared_memory.h>
+    #include <tracer_backend/utils/tracer_types.h>
+    // Include private header for test access to internal structures
+    #include "tracer_types_private.h"
 }
 
 using namespace std::chrono;

@@ -95,10 +95,8 @@ uint32_t lane_get_free_ring(Lane* lane);
 // Get current active ring for writing
 // lane: lane to query
 // Returns: pointer to active RingBuffer
-static inline struct RingBuffer* lane_get_active_ring(Lane* lane) {
-    uint32_t idx = atomic_load_explicit(&lane->active_idx, memory_order_relaxed);
-    return lane->rings[idx];
-}
+// Note: Moved to non-inline implementation due to opaque types
+struct RingBuffer* lane_get_active_ring(Lane* lane);
 
 // ============================================================================
 // Drain thread operations
