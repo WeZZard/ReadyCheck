@@ -31,7 +31,12 @@ void thread_registry_set_my_lanes(ThreadLaneSet* lanes);
 
 // Use C++ implementation but expose C interface
 ThreadRegistry* thread_registry_init(void* memory, size_t size) {
-    auto* impl = ada::internal::ThreadRegistry::create(memory, size);
+    auto* impl = ada::internal::ThreadRegistry::create(memory, size, MAX_THREADS);
+    return reinterpret_cast<ThreadRegistry*>(impl);
+}
+
+ThreadRegistry* thread_registry_init_with_capacity(void* memory, size_t size, uint32_t capacity) {
+    auto* impl = ada::internal::ThreadRegistry::create(memory, size, capacity);
     return reinterpret_cast<ThreadRegistry*>(impl);
 }
 
@@ -118,8 +123,8 @@ uint32_t thread_registry_get_active_count(ThreadRegistry* registry) {
 }
 
 ThreadLaneSet* thread_registry_get_thread_at(ThreadRegistry* registry, uint32_t index) {
-    if (!registry || index >= MAX_THREADS) return nullptr;
     auto* cpp_registry = reinterpret_cast<ada::internal::ThreadRegistry*>(registry);
+    if (!registry || index >= cpp_registry->get_capacity()) return nullptr;
     
     if (index >= cpp_registry->thread_count.load()) return nullptr;
     if (!cpp_registry->thread_lanes[index].active.load()) return nullptr;
@@ -222,16 +227,19 @@ void thread_registry_dump(ThreadRegistry* registry) {
 }
 
 size_t thread_registry_calculate_memory_size(void) {
-    // Calculate total memory needed:
-    // - ThreadRegistry object + trailing LaneMemoryLayout structures
-    size_t struct_size = ada::internal::ThreadRegistry::totalSizeNeeded(MAX_THREADS, MAX_THREADS);
-    
-    // - Ring buffer memory for all lanes
-    size_t index_ring_total = MAX_THREADS * RINGS_PER_INDEX_LANE * 64 * 1024;  // 64KB per ring
-    size_t detail_ring_total = MAX_THREADS * RINGS_PER_DETAIL_LANE * 256 * 1024; // 256KB per ring
-    size_t ring_memory_total = index_ring_total + detail_ring_total;
-    
-    return struct_size + ring_memory_total;
+    return thread_registry_calculate_memory_size_with_capacity(MAX_THREADS);
+}
+
+size_t thread_registry_calculate_memory_size_with_capacity(uint32_t capacity) {
+    // Recommended size: header + lane array + per-thread (rings + metadata)
+    size_t header = sizeof(ada::internal::ThreadRegistry);
+    size_t lanes = (size_t)capacity * sizeof(ada::internal::ThreadLaneSet);
+    size_t per_thread_rings = (size_t)RINGS_PER_INDEX_LANE * 64 * 1024 +
+                              (size_t)RINGS_PER_DETAIL_LANE * 256 * 1024;
+    size_t per_thread_meta = sizeof(ada::internal::LaneMemoryLayout) * 2;
+    // Account for page alignment after lanes (~ worst case add one page)
+    size_t align_slack = 4096;
+    return header + lanes + align_slack + (size_t)capacity * (per_thread_rings + per_thread_meta);
 }
 
 // Lane accessor functions for opaque ThreadLaneSet
@@ -263,6 +271,12 @@ uint64_t thread_lanes_get_events_generated(ThreadLaneSet* lanes) {
     if (!lanes) return 0;
     auto* cpp_lanes = reinterpret_cast<ada::internal::ThreadLaneSet*>(lanes);
     return cpp_lanes->events_generated.load(std::memory_order_seq_cst);
+}
+
+uint32_t thread_registry_get_capacity(ThreadRegistry* registry) {
+    if (!registry) return 0;
+    auto* cpp_registry = reinterpret_cast<ada::internal::ThreadRegistry*>(registry);
+    return cpp_registry->get_capacity();
 }
 
 

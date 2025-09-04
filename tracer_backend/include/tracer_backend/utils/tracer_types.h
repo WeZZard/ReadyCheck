@@ -3,7 +3,6 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include <stdatomic.h>
 
 // Event kinds
 typedef enum {

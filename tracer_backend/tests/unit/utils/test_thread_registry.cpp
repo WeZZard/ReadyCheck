@@ -14,6 +14,8 @@ extern "C" {
 
 #include "thread_registry_private.h"
 
+#define MAX_THREADS 64
+
 // Don't use "using namespace" to avoid ambiguity with C types
 
 class ThreadRegistryTest : public ::testing::Test {
@@ -46,7 +48,7 @@ protected:
         memory = shared_memory_get_address(shm);
         memory_size = shared_memory_get_size(shm);
         
-        registry = ada::internal::ThreadRegistry::create(memory, memory_size);
+        registry = ada::internal::ThreadRegistry::create(memory, memory_size, MAX_THREADS);
         ASSERT_NE(registry, nullptr) << "Failed to initialize thread registry";
     }
 
@@ -133,20 +135,21 @@ TEST_F(ThreadRegistryTest, thread_registry__concurrent_registration__then_unique
     }
 }
 
-// Test MAX_THREADS limit enforcement
-TEST_F(ThreadRegistryTest, thread_registry__max_threads_exceeded__then_returns_null) {
-    // Register MAX_THREADS
-    for (uint32_t i = 0; i < MAX_THREADS; i++) {
+// Test capacity limit enforcement
+TEST_F(ThreadRegistryTest, thread_registry__capacity_exceeded__then_returns_null) {
+    uint32_t cap = registry->get_capacity();
+    // Register up to capacity
+    for (uint32_t i = 0; i < cap; i++) {
         auto* lanes = registry->register_thread(i + 1000);
         ASSERT_NE(lanes, nullptr) << "Registration " << i << " should succeed";
     }
     
-    EXPECT_EQ(registry->thread_count.load(), MAX_THREADS);
+    EXPECT_EQ(registry->thread_count.load(), cap);
     
     // Try to register one more
-    auto* extra = registry->register_thread(MAX_THREADS + 1000);
-    EXPECT_EQ(extra, nullptr) << "Registration beyond MAX_THREADS should fail";
-    EXPECT_EQ(registry->thread_count.load(), MAX_THREADS) << "Count should not exceed MAX_THREADS";
+    auto* extra = registry->register_thread(cap + 1000);
+    EXPECT_EQ(extra, nullptr) << "Registration beyond capacity should fail";
+    EXPECT_EQ(registry->thread_count.load(), cap) << "Count should not exceed capacity";
 }
 
 // Test SPSC submit queue operations
@@ -329,8 +332,8 @@ TEST_F(ThreadRegistryTest, thread_registry__unregister__then_inactive) {
 
 // Performance tests
 TEST_F(ThreadRegistryTest, performance__registration__then_fast) {
-    // Test registration performance up to MAX_THREADS
-    const int test_count = std::min(1000, (int)MAX_THREADS);
+    // Test registration performance up to runtime capacity
+    const int test_count = std::min(1000, (int)registry->get_capacity());
     
     auto start = std::chrono::high_resolution_clock::now();
     

@@ -134,7 +134,7 @@ static void* drain_worker(void* arg) {
         std::vector<uint64_t> per_thread_drained;
     }* data = static_cast<DrainData*>(arg);
     
-    data->per_thread_drained.resize(MAX_THREADS, 0);
+    data->per_thread_drained.resize(thread_registry_get_capacity(data->registry), 0);
     data->total_drained = 0;
     
     while (data->should_drain->load()) {
@@ -341,7 +341,7 @@ TEST_F(ThreadRegistryIntegrationTest, integration__producer_drain_coordination__
     pthread_create(&drain_thread, NULL, 
                    [](void* arg) -> void* {
                        auto* data = static_cast<decltype(&drain_data)>(arg);
-                       data->per_thread_drained.resize(MAX_THREADS, 0);
+                       data->per_thread_drained.resize(thread_registry_get_capacity(data->registry), 0);
                        
                        while (data->should_drain.load()) {
                            uint32_t thread_count = thread_registry_get_active_count(data->registry);

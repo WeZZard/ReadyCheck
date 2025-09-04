@@ -11,6 +11,8 @@ extern "C" {
 
 #include "thread_registry_private.h"
 
+#define MAX_THREADS 64
+
 // Don't use "using namespace" to avoid ambiguity with C types
 
 class ThreadRegistryCppTest : public ::testing::Test {
@@ -42,7 +44,7 @@ protected:
         memory = shared_memory_get_address(shm);
         memory_size = shared_memory_get_size(shm);
 
-        registry = ada::internal::ThreadRegistry::create(memory, memory_size);
+        registry = ada::internal::ThreadRegistry::create(memory, memory_size, MAX_THREADS);
         ASSERT_NE(registry, nullptr) << "Failed to create C++ registry";
         
         // Validate structure
@@ -169,7 +171,7 @@ TEST_F(ThreadRegistryCppTest, cpp_registry__alignment__then_cache_aligned) {
         << "Registry should be cache-aligned";
     
     // Each thread lane set
-    for (uint32_t i = 0; i < MAX_THREADS; i++) {
+    for (uint32_t i = 0; i < registry->get_capacity(); i++) {
         auto addr = reinterpret_cast<uintptr_t>(&registry->thread_lanes[i]);
         EXPECT_EQ(addr % CACHE_LINE_SIZE, 0) 
             << "ThreadLane[" << i << "] should be cache-aligned";
@@ -226,4 +228,3 @@ TEST_F(ThreadRegistryCppTest, cpp_registry__c_compatibility__then_works) {
     // Debug dump through C interface
     thread_registry_dump(c_registry);
 }
-

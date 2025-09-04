@@ -76,6 +76,12 @@ private:
 
 // Memory layout for a single lane - EXPLICIT structure, not pointer arithmetic
 struct LaneMemoryLayout {
+    // Ring descriptor with multi-segment support (id + offset)
+    struct RingDescriptor {
+        uint32_t segment_id;   // SHM segment identifier (0 = local segment)
+        uint32_t bytes;        // Size of the ring buffer in bytes
+        uint64_t offset;       // Byte offset from segment base
+    };
     // Ring buffer pointers array (just void* to memory regions)
     void* ring_ptrs[RINGS_PER_INDEX_LANE];
     
@@ -94,10 +100,35 @@ struct LaneMemoryLayout {
     void debug_print() const {
         printf("LaneMemoryLayout at %p:\n", this);
         printf("  ring_ptrs:    %p - %p\n", ring_ptrs, ring_ptrs + RINGS_PER_INDEX_LANE);
+        printf("  ring_descs[0]: seg=%u off=%llu bytes=%u\n",
+               ring_descs[0].segment_id,
+               (unsigned long long)ring_descs[0].offset,
+               ring_descs[0].bytes);
         printf("  ring_memory:  %p (size=%zu)\n", ring_memory_base, ring_memory_size);
         printf("  submit_queue: %p - %p\n", submit_queue, submit_queue + QUEUE_COUNT_INDEX_LANE);
         printf("  free_queue:   %p - %p\n", free_queue, free_queue + QUEUE_COUNT_INDEX_LANE);
     }
+    
+    // Descriptors for rings (parallel to ring_ptrs). For now we fill for the active lane count.
+    RingDescriptor ring_descs[RINGS_PER_INDEX_LANE];
+};
+
+// Segment info for multi-segment design
+enum : uint8_t {
+    SEGMENT_KIND_INDEX   = 1,
+    SEGMENT_KIND_DETAIL  = 2,
+    SEGMENT_KIND_OVERFLOW = 3,
+};
+
+struct SegmentInfo {
+    uint32_t id;           // Unique id (>=1)
+    uint8_t  kind;         // Index/Detail/Overflow
+    uint8_t  flags;        // Reserved
+    uint16_t _pad{0};
+    uint64_t size;         // Bytes in segment
+    uint64_t base_offset;  // Offset from registry base if local
+    std::atomic<uint64_t> used{0}; // Bump allocator head (bytes)
+    char     name[64];     // Optional OS name
 };
 
 // ============================================================================
@@ -244,89 +275,66 @@ public:
 // ThreadRegistry with CRTP-style tail allocation
 // ============================================================================
 
-// Forward declaration for CRTP
-class ThreadRegistry;
-
-class ThreadRegistry : public TrailingObjects<ThreadRegistry, 
-                                               LaneMemoryLayout, 
-                                               LaneMemoryLayout> {
-    using Base = TrailingObjects<ThreadRegistry, LaneMemoryLayout, LaneMemoryLayout>;
+class ThreadRegistry {
 public:
     // Registry state
     std::atomic<uint32_t> thread_count{0};
     std::atomic<bool> accepting_registrations{true};
     std::atomic<bool> shutdown_requested{false};
+    uint32_t capacity_{MAX_THREADS};
+    // Multi-segment table (epoched)
+    std::atomic<uint32_t> segment_count{0};
+    std::atomic<uint32_t> epoch{0};
+    // Keep small, enough for base + a few overflow pools
+    SegmentInfo segments[8]{};
     
-    // Thread lane sets - fixed array, not dynamic
-    alignas(CACHE_LINE_SIZE)
-    ThreadLaneSet thread_lanes[MAX_THREADS];
+    // Thread lane sets - dynamically placed in shared memory
+    ThreadLaneSet* thread_lanes{nullptr};
     
     // Factory method for creating with proper memory layout
-    static ThreadRegistry* create(void* memory, size_t size) {
-        // Calculate memory needed:
-        // - ThreadRegistry object itself
-        // - LaneMemoryLayout structures (2 per thread)
-        // - Ring buffer memory for all lanes
-        size_t struct_size = sizeof(ThreadRegistry) + 
-                            (MAX_THREADS * sizeof(LaneMemoryLayout) * 2); // index + detail layouts
-        
-        size_t index_ring_total = MAX_THREADS * RINGS_PER_INDEX_LANE * 64 * 1024;  // 64KB per ring
-        size_t detail_ring_total = MAX_THREADS * RINGS_PER_DETAIL_LANE * 256 * 1024; // 256KB per ring
-        size_t ring_memory_total = index_ring_total + detail_ring_total;
-        
-        size_t needed = struct_size + ring_memory_total;
-        
-        if (size < needed) {
-            fprintf(stderr, "Insufficient memory: need %zu, got %zu\n", needed, size);
+    static ThreadRegistry* create(void* memory, size_t size, uint32_t capacity) {
+        // Place lane set array after the header, cache-line aligned
+        uint8_t* base_ptr = static_cast<uint8_t*>(memory);
+        size_t lanes_off = (sizeof(ThreadRegistry) + (CACHE_LINE_SIZE - 1)) & ~(size_t)(CACHE_LINE_SIZE - 1);
+        size_t lanes_bytes = (size_t)capacity * sizeof(ThreadLaneSet);
+        // Ring pool starts after lane sets, page-align for rings
+        size_t ring_off_unaligned = lanes_off + lanes_bytes;
+        size_t ring_off = (ring_off_unaligned + 4095) & ~(size_t)4095;
+        if (ring_off > size) {
+            fprintf(stderr, "Insufficient memory for lane array: need at least %zu, got %zu\n", ring_off, size);
             return nullptr;
         }
+        size_t ring_memory_total = size - ring_off;
         
         // Placement new with clear memory
         std::memset(memory, 0, size);
         auto* registry = new (memory) ThreadRegistry();
-        
-        // Get structured tail memory
-        auto* index_layouts = registry->getTrailingObject<LaneMemoryLayout>(0);
-        auto* detail_layouts = registry->getTrailingObject<LaneMemoryLayout>(MAX_THREADS);
+        registry->capacity_ = capacity;
+        registry->thread_lanes = reinterpret_cast<ThreadLaneSet*>(base_ptr + lanes_off);
         
         // Calculate where ring buffer memory starts (after all structures)
-        uint8_t* ring_memory_start = static_cast<uint8_t*>(memory) + struct_size;
-        uint8_t* current_ring_mem = ring_memory_start;
+        uint8_t* ring_memory_start = base_ptr + ring_off;
+        // Initialize segment table with one unified local pool
+        registry->segment_count.store(1, std::memory_order_release);
+        registry->epoch.store(1, std::memory_order_release);
+        registry->segments[0].id = 1;
+        registry->segments[0].kind = SEGMENT_KIND_OVERFLOW; // unified pool
+        registry->segments[0].size = ring_memory_total;
+        registry->segments[0].base_offset = (uint64_t)(ring_memory_start - static_cast<uint8_t*>(memory));
+        std::snprintf(registry->segments[0].name, sizeof(registry->segments[0].name), "local:pool");
         
-        // Initialize each thread lane with structured memory
-        for (uint32_t i = 0; i < MAX_THREADS; ++i) {
-            // Set up index lane memory layout
-            index_layouts[i].ring_memory_base = current_ring_mem;
-            index_layouts[i].ring_memory_size = RINGS_PER_INDEX_LANE * 64 * 1024;
-            
-            // Initialize ring pointers for index lane
-            uint8_t* ring_ptr = current_ring_mem;
-            for (uint32_t j = 0; j < RINGS_PER_INDEX_LANE; ++j) {
-                index_layouts[i].ring_ptrs[j] = ring_ptr;
-                ring_ptr += 64 * 1024;
-            }
-            current_ring_mem += index_layouts[i].ring_memory_size;
-            
-            // Set up detail lane memory layout
-            detail_layouts[i].ring_memory_base = current_ring_mem;
-            detail_layouts[i].ring_memory_size = RINGS_PER_DETAIL_LANE * 256 * 1024;
-            
-            // Initialize ring pointers for detail lane
-            ring_ptr = current_ring_mem;
-            for (uint32_t j = 0; j < RINGS_PER_DETAIL_LANE; ++j) {
-                detail_layouts[i].ring_ptrs[j] = ring_ptr;
-                ring_ptr += 256 * 1024;
-            }
-            current_ring_mem += detail_layouts[i].ring_memory_size;
-            
+        // Initialize each thread slot (lane layouts will be allocated lazily at registration)
+        for (uint32_t i = 0; i < capacity; ++i) {
             // Don't call initialize yet - just set slot index
-            registry->thread_lanes[i].slot_index = i;
-            registry->thread_lanes[i].thread_id = 0;
-            registry->thread_lanes[i].active.store(false);
-            
-            // Store memory pointers for later initialization
-            registry->thread_lanes[i].index_lane.memory_layout = &index_layouts[i];
-            registry->thread_lanes[i].detail_lane.memory_layout = &detail_layouts[i];
+            auto* lane_set = &registry->thread_lanes[i];
+            // Zero-initialize the lane set storage
+            std::memset(lane_set, 0, sizeof(ThreadLaneSet));
+            lane_set->slot_index = i;
+            lane_set->thread_id = 0;
+            lane_set->active.store(false);
+            // Lane layouts will be assigned on registration
+            lane_set->index_lane.memory_layout = nullptr;
+            lane_set->detail_lane.memory_layout = nullptr;
         }
         
         return registry;
@@ -351,20 +359,88 @@ public:
         
         // Allocate new slot
         uint32_t slot = thread_count.fetch_add(1, std::memory_order_acq_rel);
-        printf("DEBUG: Allocating slot %u for thread %lx (MAX_THREADS=%u)\n", slot, thread_id, MAX_THREADS);
-        if (slot >= MAX_THREADS) {
+        printf("DEBUG: Allocating slot %u for thread %lx (capacity=%u)\n", slot, thread_id, capacity_);
+        if (slot >= capacity_) {
             thread_count.fetch_sub(1, std::memory_order_acq_rel);
-            printf("DEBUG: Out of slots! slot=%u >= MAX_THREADS=%u\n", slot, MAX_THREADS);
+            printf("DEBUG: Out of slots! slot=%u >= capacity=%u\n", slot, capacity_);
             return nullptr;
         }
         
         // Initialize slot (only if not already initialized)
         if (thread_lanes[slot].thread_id == 0) {
+            // Resolve segment bases
+            uint8_t* base = reinterpret_cast<uint8_t*>(this);
+            uint8_t* pool_base = base + segments[0].base_offset; // unified pool id=1
+            // Helper lambda: allocate from segment with alignment
+            auto alloc_from = [](std::atomic<uint64_t>& used, uint64_t size, uint64_t seg_size, uint32_t align) -> uint64_t {
+                uint64_t cur = used.load(std::memory_order_relaxed);
+                for (;;) {
+                    uint64_t aligned = (cur + (align - 1)) & ~(uint64_t)(align - 1);
+                    uint64_t next = aligned + size;
+                    if (next > seg_size) return UINT64_MAX;
+                    if (used.compare_exchange_weak(cur, next, std::memory_order_acq_rel)) {
+                        return aligned;
+                    }
+                    // CAS failed; cur updated, retry
+                }
+            };
+            // Allocate lane layouts from unified pool
+            uint64_t idx_layout_off = alloc_from(segments[0].used, sizeof(LaneMemoryLayout), segments[0].size, CACHE_LINE_SIZE);
+            if (idx_layout_off == UINT64_MAX) {
+                thread_count.fetch_sub(1, std::memory_order_acq_rel);
+                printf("DEBUG: Out of metadata memory while registering thread %lx (index layout)\n", thread_id);
+                return nullptr;
+            }
+            auto* idx_layout = reinterpret_cast<LaneMemoryLayout*>(pool_base + idx_layout_off);
+            std::memset(idx_layout, 0, sizeof(LaneMemoryLayout));
+            idx_layout->ring_memory_base = pool_base;
+            idx_layout->ring_memory_size = segments[0].size;
+
+            uint64_t det_layout_off = alloc_from(segments[0].used, sizeof(LaneMemoryLayout), segments[0].size, CACHE_LINE_SIZE);
+            if (det_layout_off == UINT64_MAX) {
+                thread_count.fetch_sub(1, std::memory_order_acq_rel);
+                printf("DEBUG: Out of metadata memory while registering thread %lx (detail layout)\n", thread_id);
+                return nullptr;
+            }
+            auto* det_layout = reinterpret_cast<LaneMemoryLayout*>(pool_base + det_layout_off);
+            std::memset(det_layout, 0, sizeof(LaneMemoryLayout));
+            det_layout->ring_memory_base = pool_base;
+            det_layout->ring_memory_size = segments[0].size;
+            // Allocate index rings (from unified pool segment[0])
+            for (uint32_t j = 0; j < RINGS_PER_INDEX_LANE; ++j) {
+                uint64_t off = alloc_from(segments[0].used, 64 * 1024, segments[0].size, 4096);
+                if (off == UINT64_MAX) {
+                    // Out of ring memory
+                    thread_count.fetch_sub(1, std::memory_order_acq_rel);
+                    printf("DEBUG: Out of index ring memory while registering thread %lx\n", thread_id);
+                    return nullptr;
+                }
+                uint8_t* ring_ptr = pool_base + off;
+                idx_layout->ring_ptrs[j] = ring_ptr;
+                idx_layout->ring_descs[j].segment_id = 1;
+                idx_layout->ring_descs[j].bytes = 64 * 1024;
+                idx_layout->ring_descs[j].offset = off;
+            }
+            // Allocate detail rings (from unified pool segment[0])
+            for (uint32_t j = 0; j < RINGS_PER_DETAIL_LANE; ++j) {
+                uint64_t off = alloc_from(segments[0].used, 256 * 1024, segments[0].size, 4096);
+                if (off == UINT64_MAX) {
+                    thread_count.fetch_sub(1, std::memory_order_acq_rel);
+                    printf("DEBUG: Out of detail ring memory while registering thread %lx\n", thread_id);
+                    return nullptr;
+                }
+                uint8_t* ring_ptr = pool_base + off;
+                det_layout->ring_ptrs[j] = ring_ptr;
+                det_layout->ring_descs[j].segment_id = 1;
+                det_layout->ring_descs[j].bytes = 256 * 1024;
+                det_layout->ring_descs[j].offset = off;
+            }
+            
             thread_lanes[slot].initialize(
                 thread_id, 
                 slot,
-                thread_lanes[slot].index_lane.memory_layout,
-                thread_lanes[slot].detail_lane.memory_layout
+                idx_layout,
+                det_layout
             );
         } else {
             thread_lanes[slot].thread_id = thread_id;
@@ -383,6 +459,15 @@ public:
         printf("Thread count: %u\n", thread_count.load());
         printf("Accepting: %s\n", accepting_registrations.load() ? "yes" : "no");
         printf("Shutdown: %s\n", shutdown_requested.load() ? "yes" : "no");
+        printf("Segments (epoch=%u, count=%u):\n", epoch.load(), segment_count.load());
+        for (uint32_t i = 0; i < segment_count.load(); ++i) {
+            const auto& s = segments[i];
+            printf("  seg[%u]: id=%u kind=%u size=%llu base_off=0x%llx name=%s\n",
+                   i, s.id, s.kind,
+                   (unsigned long long)s.size,
+                   (unsigned long long)s.base_offset,
+                   s.name);
+        }
         
         for (uint32_t i = 0; i < thread_count.load(); ++i) {
             if (thread_lanes[i].active.load()) {
@@ -401,7 +486,7 @@ public:
         }
         
         // Check thread lanes alignment
-        for (uint32_t i = 0; i < MAX_THREADS; ++i) {
+        for (uint32_t i = 0; i < capacity_; ++i) {
             auto addr = reinterpret_cast<uintptr_t>(&thread_lanes[i]);
             if (addr % CACHE_LINE_SIZE != 0) {
                 fprintf(stderr, "ThreadLane[%u] not cache-aligned\n", i);
@@ -411,7 +496,13 @@ public:
         
         return true;
     }
+    
+    // Accessors
+    uint32_t get_capacity() const;
 };
+
+// Public accessor for capacity from C layer
+inline uint32_t ThreadRegistry::get_capacity() const { return capacity_; }
 
 // ============================================================================
 // C compatibility layer

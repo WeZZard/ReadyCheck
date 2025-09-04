@@ -97,6 +97,9 @@ typedef struct {
  */
 ThreadRegistry* thread_registry_init(void* memory, size_t size);
 
+/** Initialize with a specific runtime capacity (pressure cap) */
+ThreadRegistry* thread_registry_init_with_capacity(void* memory, size_t size, uint32_t capacity);
+
 /**
  * Attach to existing thread registry
  * 
@@ -248,6 +251,9 @@ uint32_t thread_registry_get_active_count(ThreadRegistry* registry);
 ThreadLaneSet* thread_registry_get_thread_at(ThreadRegistry* registry, 
                                             uint32_t index);
 
+/** Get configured runtime capacity (pressure cap) */
+uint32_t thread_registry_get_capacity(ThreadRegistry* registry);
+
 /**
  * Take submitted ring for draining
  * 
@@ -305,6 +311,9 @@ void thread_registry_get_stats(ThreadRegistry* registry, TracerStats* stats);
  * Thread-safe: Yes (read-only snapshot)
  */
 void thread_registry_dump(ThreadRegistry* registry);
+
+/** Calculate memory size for a given capacity */
+size_t thread_registry_calculate_memory_size_with_capacity(uint32_t capacity);
 
 // ============================================================================
 // TLS Implementation (must be in header for inline)

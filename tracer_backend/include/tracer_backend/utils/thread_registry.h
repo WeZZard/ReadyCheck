@@ -20,6 +20,11 @@ extern "C" {
 // Returns: pointer to initialized ThreadRegistry, or NULL on failure
 ThreadRegistry* thread_registry_init(void* memory, size_t size);
 
+// Initialize thread registry with a runtime capacity (pressure cap)
+// capacity: desired maximum number of concurrently registered threads
+// Note: Memory size must be sufficient for the computed layout
+ThreadRegistry* thread_registry_init_with_capacity(void* memory, size_t size, uint32_t capacity);
+
 /// Deinitialize thread registry
 /// registry: pointer to ThreadRegistry to deinitialize
 /// memory: pointer to shared memory region for the registry
@@ -113,6 +118,9 @@ uint32_t thread_registry_get_active_count(ThreadRegistry* registry);
 // Returns: ThreadLaneSet pointer if active, NULL if inactive
 ThreadLaneSet* thread_registry_get_thread_at(ThreadRegistry* registry, uint32_t index);
 
+// Get configured runtime capacity (pressure cap) for this registry
+uint32_t thread_registry_get_capacity(ThreadRegistry* registry);
+
 // ============================================================================
 // Thread-local storage
 // ============================================================================
@@ -156,6 +164,9 @@ void thread_registry_get_stats(ThreadRegistry* registry, TracerStats* stats);
 
 // Print thread registry state (for debugging)
 void thread_registry_dump(ThreadRegistry* registry);
+
+// Calculate the memory size for a given capacity (registry structure + per-thread layouts + ring pools)
+size_t thread_registry_calculate_memory_size_with_capacity(uint32_t capacity);
 
 #ifdef __cplusplus
 }
