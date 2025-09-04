@@ -282,3 +282,10 @@ compile_commands.json
 # Third party dependencies
 /third_parties/frida-core-devkit-*.tar.xz
 /third_parties/frida-gum-devkit-*.tar.xz
+# Local build directories
+build/
+build_tracer/
+
+# Coverage and reports
+target/coverage/
+target/coverage_report/

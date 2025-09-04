@@ -114,7 +114,7 @@ TEST_F(RingBufferTest, ring_buffer__fill_and_drain__then_handles_capacity_correc
             .id = i,
             .timestamp = i * 1000,
         };
-        sprintf(event.data, "Event %zu", i);
+        snprintf(event.data, sizeof(event.data), "Event %zu", i);
         ASSERT_TRUE(ring_buffer_write(test_rb, &event));
     }
     

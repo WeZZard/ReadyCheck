@@ -392,7 +392,9 @@ TEST_F(ThreadRegistryIntegrationTest, integration__producer_drain_coordination__
     pthread_join(drain_thread, nullptr);
     
     // Verify reasonable data was processed
-    printf("Generated: %lu, Drained: %lu\n", total_generated, drain_data.total_drained);
+    printf("Generated: %llu, Drained: %llu\n",
+           (unsigned long long)total_generated,
+           (unsigned long long)drain_data.total_drained);
     
     // We expect drain to get most events (some may still be in queues)
     EXPECT_GT(drain_data.total_drained, 0U);
@@ -402,9 +404,10 @@ TEST_F(ThreadRegistryIntegrationTest, integration__producer_drain_coordination__
         if (producer_data[i].lanes) {
             auto* cpp_lanes = ada::internal::to_cpp(producer_data[i].lanes);
             uint32_t slot = cpp_lanes->slot_index;
-            printf("Thread %d (slot %u): Generated %lu, Drained %lu\n",
-                   i, slot, producer_data[i].events_generated,
-                   drain_data.per_thread_drained[slot]);
+            printf("Thread %d (slot %u): Generated %llu, Drained %llu\n",
+                   i, slot,
+                   (unsigned long long)producer_data[i].events_generated,
+                   (unsigned long long)drain_data.per_thread_drained[slot]);
         }
     }
 }
@@ -521,8 +524,9 @@ TEST_F(ThreadRegistryIntegrationTest, integration__memory_barriers__then_correct
                                       
                                       // Events should be visible after sequence update
                                       if (events < seq / 2) {
-                                          printf("Visibility issue: seq=%lu but events=%lu\n",
-                                                 seq, events);
+                                          printf("Visibility issue: seq=%llu but events=%llu\n",
+                                                 (unsigned long long)seq,
+                                                 (unsigned long long)events);
                                           data->all_correct = false;
                                       }
                                   }
@@ -669,13 +673,17 @@ TEST_F(ThreadRegistryIntegrationTest, integration__high_frequency_events__then_h
         total_sent += workers[i].events_sent;
         total_dropped += workers[i].events_dropped;
         
-        printf("Thread %d: Sent %lu, Dropped %lu\n",
-               i, workers[i].events_sent, workers[i].events_dropped);
+        printf("Thread %d: Sent %llu, Dropped %llu\n",
+               i,
+               (unsigned long long)workers[i].events_sent,
+               (unsigned long long)workers[i].events_dropped);
     }
     
     double drop_rate = (total_dropped * 100.0) / (total_sent + total_dropped);
-    printf("Total: Sent %lu, Dropped %lu (%.2f%% drop rate)\n",
-           total_sent, total_dropped, drop_rate);
+    printf("Total: Sent %llu, Dropped %llu (%.2f%% drop rate)\n",
+           (unsigned long long)total_sent,
+           (unsigned long long)total_dropped,
+           drop_rate);
     
     // System should handle pressure gracefully
     EXPECT_GT(total_sent, 0U) << "No events were sent";
@@ -753,7 +761,8 @@ TEST_F(ThreadRegistryIntegrationTest, integration__cross_thread_visibility__then
                       // Check phase 1 state
                       uint64_t events1 = thread_lanes_get_events_generated(lanes);
                       if (events1 < 50) {
-                          printf("Phase 1 visibility issue: events=%lu\n", events1);
+                          printf("Phase 1 visibility issue: events=%llu\n",
+                                 (unsigned long long)events1);
                           passed->store(false);
                       }
                       
@@ -774,7 +783,8 @@ TEST_F(ThreadRegistryIntegrationTest, integration__cross_thread_visibility__then
                       // Check phase 2 state
                       uint64_t events2 = thread_lanes_get_events_generated(lanes);
                       if (events2 < 100) {
-                          printf("Phase 2 visibility issue: events=%lu\n", events2);
+                          printf("Phase 2 visibility issue: events=%llu\n",
+                                 (unsigned long long)events2);
                           passed->store(false);
                       }
                       
