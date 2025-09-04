@@ -420,6 +420,36 @@ public:
 // Note: C compatibility layer is implemented in thread_registry.cpp
 // to avoid duplicate symbols and provide proper separation
 
+// ============================================================================
+// Conversion Functions for Tests
+// ============================================================================
+// These inline functions provide safe conversion from opaque C pointers to
+// C++ types for testing purposes. They should only be used in test code.
+
+inline ThreadLaneSet* to_cpp(::ThreadLaneSet* c_ptr) {
+    return reinterpret_cast<ThreadLaneSet*>(c_ptr);
+}
+
+inline const ThreadLaneSet* to_cpp(const ::ThreadLaneSet* c_ptr) {
+    return reinterpret_cast<const ThreadLaneSet*>(c_ptr);
+}
+
+inline ThreadRegistry* to_cpp(::ThreadRegistry* c_ptr) {
+    return reinterpret_cast<ThreadRegistry*>(c_ptr);
+}
+
+inline const ThreadRegistry* to_cpp(const ::ThreadRegistry* c_ptr) {
+    return reinterpret_cast<const ThreadRegistry*>(c_ptr);
+}
+
+inline Lane* to_cpp(::Lane* c_ptr) {
+    return reinterpret_cast<Lane*>(c_ptr);
+}
+
+inline const Lane* to_cpp(const ::Lane* c_ptr) {
+    return reinterpret_cast<const Lane*>(c_ptr);
+}
+
 } // namespace internal
 } // namespace ada
 

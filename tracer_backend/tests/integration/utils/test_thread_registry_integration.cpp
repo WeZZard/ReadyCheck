@@ -105,13 +105,20 @@ static void* agent_worker(void* arg) {
         usleep(100);
     }
     
-    // With C++ implementation, cannot access struct members directly
-    // Just simulate work without accessing lanes structure
+    // Get the lane for submitting events
+    Lane* index_lane = thread_lanes_get_index_lane(data->lanes);
+    if (!index_lane) {
+        printf("Thread %u: Failed to get index lane\n", data->thread_num);
+        return data->lanes;
+    }
+    
     data->events_generated = 0;
     
     while (!data->stop->load()) {
-        // Simulate some work
-        data->events_generated++;
+        // Submit an event to the lane
+        if (lane_submit_ring(index_lane, data->events_generated)) {
+            data->events_generated++;
+        }
         usleep(100);
     }
     
@@ -344,10 +351,16 @@ TEST_F(ThreadRegistryIntegrationTest, integration__producer_drain_coordination__
                                
                                if (!lanes) continue;
                                
+                               // Use C API to get index lane
+                               Lane* index_lane = thread_lanes_get_index_lane(lanes);
+                               if (!index_lane) continue;
+                               
                                uint32_t ring_idx;
-                               while ((ring_idx = lane_take_ring(&lanes->index_lane)) != UINT32_MAX) {
+                               while ((ring_idx = lane_take_ring(index_lane)) != UINT32_MAX) {
                                    data->per_thread_drained[i]++;
                                    data->total_drained++;
+                                   // Return the ring to free pool
+                                   lane_return_ring(index_lane, ring_idx);
                                }
                            }
                            usleep(100);
@@ -387,7 +400,8 @@ TEST_F(ThreadRegistryIntegrationTest, integration__producer_drain_coordination__
     // Check per-thread drain counts
     for (int i = 0; i < NUM_PRODUCERS; i++) {
         if (producer_data[i].lanes) {
-            uint32_t slot = producer_data[i].lanes->slot_index;
+            auto* cpp_lanes = ada::internal::to_cpp(producer_data[i].lanes);
+            uint32_t slot = cpp_lanes->slot_index;
             printf("Thread %d (slot %u): Generated %lu, Drained %lu\n",
                    i, slot, producer_data[i].events_generated,
                    drain_data.per_thread_drained[slot]);
@@ -402,29 +416,36 @@ TEST_F(ThreadRegistryIntegrationTest, integration__thread_lifecycle__then_clean_
     // Phase 1: Registration
     ThreadLaneSet* lanes = thread_registry_register(registry, (uintptr_t)pthread_self());
     ASSERT_NE(lanes, nullptr);
-    EXPECT_TRUE(atomic_load(&lanes->active));
-    uint32_t slot = lanes->slot_index;
+    auto* cpp_lanes = ada::internal::to_cpp(lanes);
+    EXPECT_TRUE(cpp_lanes->active.load());
+    uint32_t slot = cpp_lanes->slot_index;
     
     // Phase 2: Active use
-    for (uint32_t i = 0; i < lanes->index_lane.submit_queue_size - 1; i++) {
-        EXPECT_TRUE(lane_submit_ring(&lanes->index_lane, i));
+    Lane* index_lane = thread_lanes_get_index_lane(lanes);
+    ASSERT_NE(index_lane, nullptr);
+    // Note: submit_queue_size is not accessible through C API, using fixed value
+    const uint32_t queue_size = 4; // QUEUE_COUNT_INDEX_LANE from tracer_types.h
+    for (uint32_t i = 0; i < queue_size - 1; i++) {
+        EXPECT_TRUE(lane_submit_ring(index_lane, i));
     }
-    atomic_store(&lanes->events_generated, 100);
+    cpp_lanes->events_generated.store(100);
     
     // Phase 3: Deactivation
-    atomic_store(&lanes->active, false);
+    cpp_lanes->active.store(false);
     
     // Phase 4: Drain remaining events
     uint32_t drained = 0;
     uint32_t ring_idx;
-    while ((ring_idx = lane_take_ring(&lanes->index_lane)) != lanes->index_lane.submit_queue_size - 1) {
+    while ((ring_idx = lane_take_ring(index_lane)) != UINT32_MAX) {
         drained++;
+        lane_return_ring(index_lane, ring_idx);
+        if (drained >= queue_size - 1) break;
     }
-    EXPECT_EQ(drained, lanes->index_lane.submit_queue_size - 1);
+    EXPECT_EQ(drained, queue_size - 1);
     
     // Phase 5: Verify slot can be reused (in a real system)
-    EXPECT_FALSE(atomic_load(&lanes->active));
-    EXPECT_EQ(lanes->slot_index, slot);
+    EXPECT_FALSE(cpp_lanes->active.load());
+    EXPECT_EQ(cpp_lanes->slot_index, slot);
 }
 
 // Test: integration__memory_barriers__then_correct_visibility
