@@ -190,6 +190,18 @@ cargo test  # Will use the TSan-enabled binary
 ## DEBUGGING TEST FAILURES
 
 ### Run Single Test
+
+Run with debug build configuration to measure the correctness.
+
+```bash
+# After cargo build --debug
+./target/debug/tracer_backend/test/test_thread_registry \
+    --gtest_filter="ThreadRegistry.initialization*"
+```
+
+Run with release build configuration to measure the correctness and
+performance in the real world.
+
 ```bash
 # After cargo build --release
 ./target/release/tracer_backend/test/test_thread_registry \
