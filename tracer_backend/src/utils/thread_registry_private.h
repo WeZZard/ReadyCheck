@@ -11,64 +11,8 @@
 // Need private definitions for concrete implementation
 #include "tracer_types_private.h"
 
-// ============================================================================
-// CRTP Base for objects with tail-allocated data (LLVM-style)
-// ============================================================================
-
 namespace ada {
 namespace internal {
-
-// Base class for objects with trailing storage (similar to LLVM's TrailingObjects)
-template<typename Derived, typename... TrailingTypes>
-class TrailingObjects {
-protected:
-    // Calculate offset for the Nth trailing type
-    template<size_t N>
-    static constexpr size_t getTrailingOffset() {
-        return getTrailingOffsetImpl<N, 0, TrailingTypes...>();
-    }
-    
-private:
-    template<size_t Target, size_t Current, typename First, typename... Rest>
-    static constexpr size_t getTrailingOffsetImpl() {
-        if constexpr (Current == Target) {
-            return 0;
-        } else if constexpr (sizeof...(Rest) > 0) {
-            return sizeof(First) + getTrailingOffsetImpl<Target, Current + 1, Rest...>();
-        } else {
-            return sizeof(First);
-        }
-    }
-    
-public:
-    // Get pointer to trailing object at index
-    template<typename T>
-    T* getTrailingObject(size_t index = 0) {
-        auto* base = reinterpret_cast<uint8_t*>(static_cast<Derived*>(this) + 1);
-        return reinterpret_cast<T*>(base + sizeof(T) * index);
-    }
-    
-    template<typename T>
-    const T* getTrailingObject(size_t index = 0) const {
-        auto* base = reinterpret_cast<const uint8_t*>(static_cast<const Derived*>(this) + 1);
-        return reinterpret_cast<const T*>(base + sizeof(T) * index);
-    }
-    // Calculate total size needed for object with trailing data
-    template<typename... Counts>
-    static size_t totalSizeNeeded(Counts... counts) {
-        return sizeof(Derived) + totalSizeForTrailing<TrailingTypes...>(counts...);
-    }
-    
-private:
-    template<typename First, typename... Rest, typename... Counts>
-    static size_t totalSizeForTrailing(size_t firstCount, Counts... restCounts) {
-        size_t size = sizeof(First) * firstCount;
-        if constexpr (sizeof...(Rest) > 0) {
-            size += totalSizeForTrailing<Rest...>(restCounts...);
-        }
-        return size;
-    }
-};
 
 // ============================================================================
 // Structured Lane Memory Layout (debugger-friendly)
