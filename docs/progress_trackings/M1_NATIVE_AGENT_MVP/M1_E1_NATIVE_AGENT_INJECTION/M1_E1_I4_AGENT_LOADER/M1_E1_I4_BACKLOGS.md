@@ -1,5 +1,11 @@
 # M1_E1_I4 Backlogs: Agent Loader
 
+Status: IN PROGRESS
+
+Notes:
+- Local + SSH/CI codesigning guidance available in utils/sign_binary.sh.
+- Integration tests (spawn/attach, missing library, shared memory verification) are passing; work will focus on diagnostics and configuration polish.
+
 ## Sprint Planning
 
 **Sprint Duration**: 3 days (Dec 16-18, 2024)

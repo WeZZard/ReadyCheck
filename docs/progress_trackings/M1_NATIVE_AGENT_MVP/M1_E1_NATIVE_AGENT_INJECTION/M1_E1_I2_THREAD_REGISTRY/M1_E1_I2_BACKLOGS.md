@@ -1,5 +1,14 @@
 # Backlogs — M1 E1 I2 Thread Registry
 
+Status: COMPLETE
+
+Completion Summary:
+- Implemented ThreadRegistry with per-thread ThreadLaneSet and lane structures.
+- Added registration/unregistration, TLS caching, and active lane management.
+- SPSC submit/free queues implemented with correct memory ordering.
+- Integrated with ring buffers and shared memory; validated in unit/integration tests.
+- Added helper APIs (lane_init, lane_swap_active_ring, getters) and debug dump.
+
 ## Sprint Overview
 **Duration**: 3 days (24 hours)
 **Priority**: P0 (Critical - foundation for all per-thread operations)

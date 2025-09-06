@@ -1,5 +1,14 @@
 # M1_E1_I3 Backlogs: Ring Buffer Core
 
+Status: COMPLETE
+
+Completion Summary:
+- SPSC ring buffer implemented with power-of-two capacity and bitmask wrap.
+- Producer/consumer indices placed on separate cache lines to reduce false sharing.
+- Overflow metric (overflow_count) tracked; tests assert increments.
+- Unit tests cover create/write/read/wraparound/attach; added perf smoke (throughput/p99) and short stress.
+- Integrated with ThreadRegistry and controller/agent; full tracer_backend tests pass.
+
 ## Implementation Tasks
 
 ### Priority 0 (Core Functionality) - Day 1
