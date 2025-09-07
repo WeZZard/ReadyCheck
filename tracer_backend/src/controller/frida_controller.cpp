@@ -461,7 +461,7 @@ int FridaController::install_hooks() {
              "host_pid=%u;session_id=%08x",
              shared_memory_get_pid(), shared_memory_get_session_id());
     
-    // Create QuickJS loader script
+    // Create QuickJS loader script (MVP path)
     char script_source[4096];
     snprintf(script_source, sizeof(script_source),
         "console.log('[Loader] Starting native agent injection');\n"

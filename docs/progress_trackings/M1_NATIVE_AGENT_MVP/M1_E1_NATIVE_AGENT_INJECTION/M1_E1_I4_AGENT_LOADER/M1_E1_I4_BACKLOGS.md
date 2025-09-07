@@ -1,22 +1,24 @@
 # M1_E1_I4 Backlogs: Agent Loader
 
-Status: COMPLETE
+Status: SCOPE CHANGED (MVP)
 
-Completion Summary:
-- Native dylib injection path hardened (spawn + attach) with clear diagnostics and timeouts.
+MVP Scope Decision:
+- Native (scriptless) injection is deferred to a global backlog item due to platform loader/injector issues surfaced during I4.
+- QuickJS-based loader remains the canonical agent injection path for MVP.
+
+Completion Summary (MVP scope):
 - Shared memory connection verified post-injection; missing-library case handled cleanly.
 - Local/SSH/CI codesigning documented and validated via integration gate.
-- All new and existing tests pass under the integration gate.
 - Agent linkage minimized: removed unnecessary Foundation framework from agent dylib (otool -L clean).
+- All new and existing tests pass under the integration gate using the QuickJS loader.
 
-Post-Iteration Deprecation (Scheduled):
-- Remove QuickJS-based agent injection after I4, contingent on all tests and the integration gate remaining green.
-- Prerequisites: no regressions in native injection; all existing tests (spawn/attach/missing library) and new loader diagnostics tests passing.
+Post-Iteration Change:
+- Deprecation/removal of the QuickJS-based loader is postponed; QuickJS remains in MVP.
 
-## Difficulties Encountered (carried to I5)
+## Global Backlog
 
-- Direct native injection using frida_device_inject_library_file_sync failed with: "Module not found at '/System/Library/Frameworks/Foundation.framework/Versions/C/Foundation'" when briefly replacing the QuickJS loader. Root cause likely dyld policy/hardened runtime and dependency resolution. Mitigation in I4: kept QuickJS-based Module.load path for stability; minimized agent link deps by removing Foundation. Plan in I5: revisit native injection with dyld logs, Frida Injector APIs, and signing/policy adjustments.
-- macOS codesigning over SSH can block without Developer ID; addressed with utils/sign_binary.sh and integration gate timeouts/logging.
+- Native agent injection (scriptless): harden direct injection (Frida Injector/device APIs) on macOS; collect dyld logs; validate policy/signing; replace QuickJS when stable. (Deferred)
+- macOS codesigning over SSH: continue using utils/sign_binary.sh and integration gate timeouts/logging; document Developer ID requirement.
 
 ## Sprint Planning
 
