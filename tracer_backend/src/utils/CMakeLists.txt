@@ -7,6 +7,7 @@ set(UTILS_SOURCES
     shared_memory.c
     ring_buffer.cpp
     thread_registry.cpp
+    ada_thread.c
 )
 
 # Create static library

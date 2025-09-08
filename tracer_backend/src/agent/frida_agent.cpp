@@ -22,6 +22,8 @@
 extern "C" {
 #include <tracer_backend/utils/ring_buffer.h>
 #include <tracer_backend/utils/shared_memory.h>
+// Thread registry API for per-thread lanes
+#include <tracer_backend/utils/thread_registry.h>
 }
 
 // Include C++ implementation headers
@@ -193,7 +195,26 @@ bool AgentContext::open_shared_memory() {
     // Map control block
     control_block_ = static_cast<ControlBlock*>(shm_control_.get_address());
     g_debug("[Agent] Control block mapped at %p\n", control_block_);
-    
+
+    // Try to open and attach to thread registry (optional)
+    size_t registry_size = thread_registry_calculate_memory_size_with_capacity(MAX_THREADS);
+    auto reg_c = shared_memory_open_unique("registry", host_pid_, session_id_, registry_size);
+    if (reg_c) {
+        // Wrap in RAII holder and keep as member to keep mapping alive
+        SharedMemoryRef shm_reg(reinterpret_cast<SharedMemoryRef*>(reg_c));
+        void* addr = shm_reg.get_address();
+        ::ThreadRegistry* reg_handle = thread_registry_attach(addr);
+        if (reg_handle) {
+            ada_set_global_registry(reg_handle);
+            g_debug("[Agent] Attached thread registry at %p (size=%zu)\n", addr, registry_size);
+            shm_registry_ = std::move(shm_reg);
+        } else {
+            g_debug("[Agent] Failed to attach thread registry at %p\n", addr);
+        }
+    } else {
+        g_debug("[Agent] Registry segment not found; running with process-global rings\n");
+    }
+
     return true;
 }
 
@@ -316,6 +337,8 @@ static void tls_destructor(void* data) {
     if (data) {
         delete static_cast<ThreadLocalData*>(data);
     }
+    // Also cleanup ADA TLS / unregister from registry
+    ada_tls_thread_cleanup();
 }
 
 static void init_tls_key() {
@@ -512,7 +535,18 @@ static void capture_index_event(AgentContext* ctx, HookData* hook,
     event.call_depth = tls->call_depth();
     event._padding = 0;
     
-    if (ring_buffer_write(reinterpret_cast<::RingBuffer*>(ctx->index_ring()), &event)) {
+    // Prefer per-thread lane if registry is attached
+    ThreadLaneSet* lanes = ada_get_thread_lane();
+    ::RingBuffer* target_rb = nullptr;
+    if (lanes) {
+        Lane* idx_lane = thread_lanes_get_index_lane(lanes);
+        target_rb = lane_get_active_ring(idx_lane);
+    }
+    if (!target_rb) {
+        target_rb = reinterpret_cast<::RingBuffer*>(ctx->index_ring());
+    }
+
+    if (ring_buffer_write(target_rb, &event)) {
         g_debug("[Agent] Wrote index event\n");
         ctx->increment_events_emitted();
     } else {
@@ -586,7 +620,18 @@ static void capture_detail_event(AgentContext* ctx, HookData* hook,
         }
     }
     
-    if (ring_buffer_write(reinterpret_cast<::RingBuffer*>(ctx->detail_ring()), &detail)) {
+    // Prefer per-thread lane if registry is attached
+    ThreadLaneSet* lanes = ada_get_thread_lane();
+    ::RingBuffer* target_rb = nullptr;
+    if (lanes) {
+        Lane* det_lane = thread_lanes_get_detail_lane(lanes);
+        target_rb = lane_get_active_ring(det_lane);
+    }
+    if (!target_rb) {
+        target_rb = reinterpret_cast<::RingBuffer*>(ctx->detail_ring());
+    }
+
+    if (ring_buffer_write(target_rb, &detail)) {
         g_debug("[Agent] Wrote detail event\n");
         ctx->increment_events_emitted();
     } else {

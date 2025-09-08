@@ -45,6 +45,7 @@ const char ADA_SHM_PREFIX[] = "ada";
 const char ADA_ROLE_CONTROL[] = "control";
 const char ADA_ROLE_INDEX[] = "index";
 const char ADA_ROLE_DETAIL[] = "detail";
+const char ADA_ROLE_REGISTRY[] = "registry";
 
 static pthread_once_t shm_sid_once = PTHREAD_ONCE_INIT;
 static uint32_t shm_session_id = 0;

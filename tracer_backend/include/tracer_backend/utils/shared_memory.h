@@ -21,6 +21,7 @@ extern const char ADA_SHM_PREFIX[];
 extern const char ADA_ROLE_CONTROL[];
 extern const char ADA_ROLE_INDEX[];
 extern const char ADA_ROLE_DETAIL[];
+extern const char ADA_ROLE_REGISTRY[];
 
 // Return this process' session id (generated once).
 //

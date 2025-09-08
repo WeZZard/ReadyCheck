@@ -104,6 +104,12 @@ FridaController::~FridaController() {
     if (drain_thread_ && drain_thread_->joinable()) {
         drain_thread_->join();
     }
+
+    // Deinitialize thread registry (testing/runtime hygiene)
+    if (registry_) {
+        thread_registry_deinit(registry_);
+        registry_ = nullptr;
+    }
     
     // Cleanup Frida objects
     cleanup_frida_objects();
@@ -190,7 +196,26 @@ bool FridaController::initialize_shared_memory() {
     control_block_->detail_lane_enabled = 1;
     control_block_->pre_roll_ms = 1000;
     control_block_->post_roll_ms = 1000;
-    
+
+    // Create thread registry shared memory and initialize it
+    size_t registry_size = thread_registry_calculate_memory_size_with_capacity(MAX_THREADS);
+    SharedMemoryRef registry_ref = shared_memory_create_unique(
+        ADA_ROLE_REGISTRY, controller_pid, session_id,
+        registry_size, nullptr, 0);
+    if (!registry_ref) {
+        return false;
+    }
+    shm_registry_.reset(registry_ref);
+    g_debug("Created registry shared memory: %s\n",
+            shared_memory_get_name(registry_ref));
+
+    void* reg_addr = shared_memory_get_address(registry_ref);
+    registry_ = thread_registry_init(reg_addr, registry_size);
+    if (!registry_) {
+        g_debug("Failed to initialize thread registry at %p (size=%zu)\n", reg_addr, registry_size);
+        return false;
+    }
+
     return true;
 }
 

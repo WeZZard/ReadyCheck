@@ -11,7 +11,10 @@
 // C headers
 extern "C" {
 #include <tracer_backend/utils/tracer_types.h>
+#include <tracer_backend/utils/thread_registry.h>
 #include <frida-gum.h>
+// ADA TLS API
+#include <tracer_backend/ada/thread.h>
 }
 
 // Forward declarations for C++ classes
@@ -161,6 +164,7 @@ private:
     SharedMemoryRef shm_control_;
     SharedMemoryRef shm_index_;
     SharedMemoryRef shm_detail_;
+    SharedMemoryRef shm_registry_;
     
     // Ring buffers (using unique_ptr with custom deleter)
     std::unique_ptr<RingBuffer, void(*)(RingBuffer*)> index_ring_;

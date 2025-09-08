@@ -11,6 +11,7 @@ extern "C" {
 #include <frida-core.h>
 #include <tracer_backend/utils/tracer_types.h>
 #include <tracer_backend/utils/shared_memory.h>
+#include <tracer_backend/utils/thread_registry.h>
 }
 
 // Forward declare internal C++ types
@@ -123,7 +124,9 @@ private:
     shared_memory_ptr shm_control_;
     shared_memory_ptr shm_index_;
     shared_memory_ptr shm_detail_;
+    shared_memory_ptr shm_registry_;
     ControlBlock* control_block_{nullptr};
+    ::ThreadRegistry* registry_{nullptr};
     
     // Ring buffers (using internal C++ classes)
     std::unique_ptr<RingBuffer> index_ring_;
