@@ -1,4 +1,4 @@
-# M1_E1_I6 Test Plan: Ring Pool Swap Protocol
+# M1_E1_I8 Test Plan: Ring Pool Swap Protocol
 
 ## Test Coverage Map
 

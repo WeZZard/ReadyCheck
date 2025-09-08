@@ -1,8 +1,10 @@
-# M1_E1_I6 Technical Design: Ring Pool Swap Protocol
+# M1_E1_I8 Technical Design: Ring Pool Swap Protocol
 
 ## Overview
 
 This iteration implements per-thread ring pool management with atomic swap protocol for handling full rings. Each thread maintains pools of pre-allocated rings with lock-free submission and retrieval mechanisms.
+
+Addressing note: All SHM references use offsets-only as established in I6. Accessors compute addresses per call from `base + offset`; no persistent materialized-address caches are kept.
 
 ## Architecture
 

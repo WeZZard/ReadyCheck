@@ -92,6 +92,12 @@ graph TB
 4. **Selective Persistence Pattern**: Continuous circular buffer with trigger-based detailed persistence
 5. **Platform Abstraction**: Different spawning strategies for mock tracees vs system binaries
 
+### Addressing Model (Offsets-Only)
+
+- SHM stores offsets and sizes only; no absolute pointers are persisted in shared memory.
+- Writers/readers compute addresses per call as `addr = base + offset` using inline, cache-friendly helpers.
+- No persistent materialized-address caches are kept; layouts are immutable during a session.
+
 ## Component Architecture
 
 ### Core Components

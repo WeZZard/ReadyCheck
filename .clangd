@@ -1,2 +1,17 @@
 CompileFlags:
-  CompilationDatabase: target
+  Add: [-Wall, -Wextra, -Wno-unused-parameter]
+
+Diagnostics:
+  ClangTidy:
+    Add: [modernize-*]
+    Remove: [clang-analyzer-alpha*]
+
+Index:
+  Background: true
+  StandardLibrary: "system"
+
+InlayHints:
+  Enabled: true
+  ParameterNames: true
+  DeducedTypes: true
+

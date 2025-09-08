@@ -1,4 +1,4 @@
-# M1_E1_I7 Technical Design: Broad Coverage Hooks
+# M1_E1_I9 Technical Design: Broad Coverage Hooks
 
 ## Overview
 Install comprehensive function hooks in target process with DSO (Dynamic Shared Object) on-arrival hooking and configurable exclude list support. This iteration establishes broad coverage of function interception across main binary and dynamically loaded libraries, with performance-aware exclusions for pathological hotspots, while emitting tracing events through the per-thread ring buffer system.

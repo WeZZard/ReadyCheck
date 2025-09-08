@@ -185,6 +185,12 @@ statistics.py       # Performance analysis
 └─────────────────────────────────────┘
 ```
 
+### Addressing
+
+- Offsets-only: all pointers in SHM are represented as offsets (and sizes) relative to the mapped arena base.
+- Per-call materialization: each reader/writer computes real addresses per call as `addr = base + offset` using inline helpers; no persistent materialized-address caches are stored.
+- Cross-process consistency: both agent and controller map the same arena and compute addresses locally; indices for additional SHMs are introduced in later iterations.
+
 ### Synchronization
 
 - **Single Writer**: Each process has one agent (writer)
