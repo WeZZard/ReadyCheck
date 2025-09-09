@@ -200,23 +200,33 @@ bool FridaController::initialize_shared_memory() {
     control_block_->pre_roll_ms = 1000;
     control_block_->post_roll_ms = 1000;
 
-    // Create thread registry shared memory and initialize it
-    size_t registry_size = thread_registry_calculate_memory_size_with_capacity(MAX_THREADS);
-    SharedMemoryRef registry_ref = shared_memory_create_unique(
-        ADA_ROLE_REGISTRY, controller_pid, session_id,
-        registry_size, nullptr, 0);
-    if (!registry_ref) {
-        return false;
+    // Optional: allow disabling registry via env (verification / fallback)
+    bool disable_registry = false;
+    if (const char* env = getenv("ADA_DISABLE_REGISTRY")) {
+        if (env[0] != '\0' && env[0] != '0') disable_registry = true;
     }
-    shm_registry_.reset(registry_ref);
-    g_debug("Created registry shared memory: %s\n",
-            shared_memory_get_name(registry_ref));
 
-    void* reg_addr = shared_memory_get_address(registry_ref);
-    registry_ = thread_registry_init(reg_addr, registry_size);
-    if (!registry_) {
-        g_debug("Failed to initialize thread registry at %p (size=%zu)\n", reg_addr, registry_size);
-        return false;
+    // Create thread registry shared memory and initialize it (unless disabled)
+    size_t registry_size = thread_registry_calculate_memory_size_with_capacity(MAX_THREADS);
+    if (!disable_registry) {
+        SharedMemoryRef registry_ref = shared_memory_create_unique(
+            ADA_ROLE_REGISTRY, controller_pid, session_id,
+            registry_size, nullptr, 0);
+        if (!registry_ref) {
+            return false;
+        }
+        shm_registry_.reset(registry_ref);
+        g_debug("Created registry shared memory: %s\n",
+                shared_memory_get_name(registry_ref));
+
+        void* reg_addr = shared_memory_get_address(registry_ref);
+        registry_ = thread_registry_init(reg_addr, registry_size);
+        if (!registry_) {
+            g_debug("Failed to initialize thread registry at %p (size=%zu)\n", reg_addr, registry_size);
+            return false;
+        }
+    } else {
+        g_debug("Registry disabled by ADA_DISABLE_REGISTRY\n");
     }
 
     return true;
@@ -676,7 +686,11 @@ void FridaController::drain_thread_main() {
         size_t index_count = 0;
         size_t detail_count = 0;
 
-        if (registry_) {
+        static bool enable_registry_rings = [](){
+            const char* e = getenv("ADA_ENABLE_REGISTRY_RINGS");
+            return e && e[0] != '\0' && e[0] != '0';
+        }();
+        if (registry_ && enable_registry_rings) {
             // Drain per-thread lanes when registry is available
             uint32_t cap = thread_registry_get_capacity(registry_);
             for (uint32_t i = 0; i < cap; ++i) {

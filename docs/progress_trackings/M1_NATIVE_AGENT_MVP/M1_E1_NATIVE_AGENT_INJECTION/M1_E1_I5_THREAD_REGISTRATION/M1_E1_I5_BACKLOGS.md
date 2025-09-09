@@ -258,6 +258,27 @@ static inline ThreadLane* ada_get_thread_lane(void)
 - [ ] API documentation complete
 - [ ] Integration examples provided
 - [ ] Performance characteristics documented
+
+---
+
+## Post-fix Backlog (I5)
+
+These items were identified during integration of I5 and are deferred or tracked explicitly to keep I5 green without changing the SHM schema:
+
+- [ ] Gate registry data-plane behind env flag
+  - Default to process-global rings for event writes/drain. Keep registry for TLS/registration only.
+  - Enable per-thread (registry) rings only with `ADA_ENABLE_REGISTRY_RINGS=1`.
+- [ ] Optional registry bypass for diagnostics
+  - Honor `ADA_DISABLE_REGISTRY=1` to skip registry creation/attach entirely when debugging.
+- [ ] Temporary diagnostics for write/drain
+  - Agent: log ring header state (capacity/wp/rp) and write results on first events.
+  - Controller: log available_read() for global rings before draining.
+  - Clean up or gate logs once stable.
+- [ ] CI lane
+  - Add CI job running integration tests with default settings (registry data-plane disabled) to guard I5.
+
+Notes
+- Offset-only SHM addressing is planned in I6; I5 intentionally avoids schema change and relies on the proven global rings for data-plane to keep integration tests stable.
 - [ ] Platform requirements specified
 
 ### Review

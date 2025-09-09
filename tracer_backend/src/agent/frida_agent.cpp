@@ -47,6 +47,12 @@ static std::mutex g_context_mutex;
 static pthread_key_t g_tls_key;
 static pthread_once_t g_tls_once = PTHREAD_ONCE_INIT;
 
+// Verbose logging gate (default: off). Enable with ADA_AGENT_VERBOSE=1
+static bool g_agent_verbose = [](){
+    const char* e = getenv("ADA_AGENT_VERBOSE");
+    return e && e[0] != '\0' && e[0] != '0';
+}();
+
 // For initialization parsing
 static uint32_t g_host_pid = UINT32_MAX;
 static uint32_t g_session_id = UINT32_MAX;
@@ -130,12 +136,12 @@ AgentContext::AgentContext()
 }
 
 AgentContext::~AgentContext() {
-    g_debug("[Agent] Shutting down (emitted=%llu events, blocked=%llu reentrancy)\n",
+    if (g_agent_verbose) g_debug("[Agent] Shutting down (emitted=%llu events, blocked=%llu reentrancy)\n",
             static_cast<unsigned long long>(events_emitted_.load()),
             static_cast<unsigned long long>(reentrancy_blocked_.load()));
     
     // Print final statistics
-    g_debug("[Agent] Final stats: events_emitted=%llu, reentrancy_blocked=%llu, "
+    if (g_agent_verbose) g_debug("[Agent] Final stats: events_emitted=%llu, reentrancy_blocked=%llu, "
             "stack_failures=%llu\n",
             static_cast<unsigned long long>(events_emitted_.load()),
             static_cast<unsigned long long>(reentrancy_blocked_.load()),
@@ -175,7 +181,7 @@ bool AgentContext::initialize(uint32_t host_pid, uint32_t session_id) {
 }
 
 bool AgentContext::open_shared_memory() {
-    g_debug("[Agent] Opening shared memory segments...\n");
+    if (ada::internal::g_agent_verbose) g_debug("[Agent] Opening shared memory segments...\n");
     
     shm_control_ = SharedMemoryRef::open_unique(0, host_pid_, 
                                                session_id_, 4096);
@@ -190,29 +196,37 @@ bool AgentContext::open_shared_memory() {
         return false;
     }
     
-    g_debug("[Agent] Successfully opened all shared memory segments\n");
+    if (ada::internal::g_agent_verbose) g_debug("[Agent] Successfully opened all shared memory segments\n");
     
     // Map control block
     control_block_ = static_cast<ControlBlock*>(shm_control_.get_address());
-    g_debug("[Agent] Control block mapped at %p\n", control_block_);
+    if (ada::internal::g_agent_verbose) g_debug("[Agent] Control block mapped at %p\n", control_block_);
 
-    // Try to open and attach to thread registry (optional)
-    size_t registry_size = thread_registry_calculate_memory_size_with_capacity(MAX_THREADS);
-    auto reg_c = shared_memory_open_unique("registry", host_pid_, session_id_, registry_size);
-    if (reg_c) {
-        // Wrap in RAII holder and keep as member to keep mapping alive
-        SharedMemoryRef shm_reg(reinterpret_cast<SharedMemoryRef*>(reg_c));
-        void* addr = shm_reg.get_address();
-        ::ThreadRegistry* reg_handle = thread_registry_attach(addr);
-        if (reg_handle) {
-            ada_set_global_registry(reg_handle);
-            g_debug("[Agent] Attached thread registry at %p (size=%zu)\n", addr, registry_size);
-            shm_registry_ = std::move(shm_reg);
+    // Try to open and attach to thread registry (optional, can be disabled by env)
+    bool disable_registry = false;
+    if (const char* env = getenv("ADA_DISABLE_REGISTRY")) {
+        if (env[0] != '\0' && env[0] != '0') disable_registry = true;
+    }
+    if (!disable_registry) {
+        size_t registry_size = thread_registry_calculate_memory_size_with_capacity(MAX_THREADS);
+        auto reg_c = shared_memory_open_unique("registry", host_pid_, session_id_, registry_size);
+        if (reg_c) {
+            // Wrap in RAII holder and keep as member to keep mapping alive
+            SharedMemoryRef shm_reg(reinterpret_cast<SharedMemoryRef*>(reg_c));
+            void* addr = shm_reg.get_address();
+            ::ThreadRegistry* reg_handle = thread_registry_attach(addr);
+            if (reg_handle) {
+                ada_set_global_registry(reg_handle);
+                if (ada::internal::g_agent_verbose) g_debug("[Agent] Attached thread registry at %p (size=%zu)\n", addr, registry_size);
+                shm_registry_ = std::move(shm_reg);
+            } else {
+                g_debug("[Agent] Failed to attach thread registry at %p\n", addr);
+            }
         } else {
-            g_debug("[Agent] Failed to attach thread registry at %p\n", addr);
+            if (ada::internal::g_agent_verbose) g_debug("[Agent] Registry segment not found; running with process-global rings\n");
         }
     } else {
-        g_debug("[Agent] Registry segment not found; running with process-global rings\n");
+        if (ada::internal::g_agent_verbose) g_debug("[Agent] Registry disabled by ADA_DISABLE_REGISTRY\n");
     }
 
     return true;
@@ -240,7 +254,7 @@ bool AgentContext::attach_ring_buffers() {
 }
 
 void AgentContext::hook_function(const char* name) {
-    g_debug("[Agent] Finding symbol: %s\n", name);
+    if (ada::internal::g_agent_verbose) g_debug("[Agent] Finding symbol: %s\n", name);
     num_hooks_attempted_++;
     
     // Generate stable function ID from name
@@ -276,17 +290,17 @@ void AgentContext::hook_function(const char* name) {
         hooks_.push_back(std::move(hook));
         num_hooks_successful_++;
         
-        g_debug("[Agent] Hooked: %s at 0x%llx (id=%u)\n", name,
+        if (ada::internal::g_agent_verbose) g_debug("[Agent] Hooked: %s at 0x%llx (id=%u)\n", name,
                 static_cast<unsigned long long>(func_addr), function_id);
     } else {
-        g_debug("[Agent] Failed to find: %s\n", name);
+        if (ada::internal::g_agent_verbose) g_debug("[Agent] Failed to find: %s\n", name);
     }
 }
 
 void AgentContext::install_hooks() {
     // Begin transaction for batch hooking
     gum_interceptor_begin_transaction(interceptor_);
-    g_debug("[Agent] Beginning hook installation...\n");
+    if (ada::internal::g_agent_verbose) g_debug("[Agent] Beginning hook installation...\n");
     
     // Define functions to hook
     const char* functions_to_hook[] = {
@@ -316,9 +330,9 @@ void AgentContext::install_hooks() {
 void AgentContext::send_hook_summary() {
     // For now, just print the summary
     // TODO: Implement proper Frida messaging when API is available
-    g_debug("[Agent] Hook Summary: attempted=%u, successful=%u, failed=%u\n",
-            num_hooks_attempted_, num_hooks_successful_,
-            num_hooks_attempted_ - num_hooks_successful_);
+    if (ada::internal::g_agent_verbose) g_debug("[Agent] Hook Summary: attempted=%u, successful=%u, failed=%u\n",
+                num_hooks_attempted_, num_hooks_successful_,
+                num_hooks_attempted_ - num_hooks_successful_);
     
     for (const auto& result : hook_results_) {
         g_debug("[Agent]   %s: address=0x%llx, id=%u, %s\n", 
@@ -535,21 +549,25 @@ static void capture_index_event(AgentContext* ctx, HookData* hook,
     event.call_depth = tls->call_depth();
     event._padding = 0;
     
-    // Prefer per-thread lane if registry is attached
-    ThreadLaneSet* lanes = ada_get_thread_lane();
-    ::RingBuffer* target_rb = nullptr;
-    if (lanes) {
-        Lane* idx_lane = thread_lanes_get_index_lane(lanes);
-        target_rb = lane_get_active_ring(idx_lane);
-    }
-    if (!target_rb) {
-        target_rb = reinterpret_cast<::RingBuffer*>(ctx->index_ring());
+    // Prefer global ring by default (I5); enable per-thread only via env gate
+    static bool enable_registry_rings = [](){
+        const char* e = getenv("ADA_ENABLE_REGISTRY_RINGS");
+        return e && e[0] != '\0' && e[0] != '0';
+    }();
+    ::RingBuffer* target_rb = reinterpret_cast<::RingBuffer*>(ctx->index_ring());
+    if (enable_registry_rings) {
+        ThreadLaneSet* lanes = ada_get_thread_lane();
+        if (lanes) {
+            Lane* idx_lane = thread_lanes_get_index_lane(lanes);
+            ::RingBuffer* t = lane_get_active_ring(idx_lane);
+            if (t) target_rb = t;
+        }
     }
 
     bool wrote = ring_buffer_write(target_rb, &event);
-    // Also mirror to process-global ring for compatibility with existing drain path
-    if (ctx->index_ring()) {
-        (void)ring_buffer_write(reinterpret_cast<::RingBuffer*>(ctx->index_ring()), &event);
+    if (ctx->index_ring() && target_rb != reinterpret_cast<::RingBuffer*>(ctx->index_ring())) {
+        ::RingBuffer* grb = reinterpret_cast<::RingBuffer*>(ctx->index_ring());
+        (void)ring_buffer_write(grb, &event);
     }
     if (wrote) {
         g_debug("[Agent] Wrote index event\n");
@@ -625,21 +643,26 @@ static void capture_detail_event(AgentContext* ctx, HookData* hook,
         }
     }
     
-    // Prefer per-thread lane if registry is attached
-    ThreadLaneSet* lanes = ada_get_thread_lane();
-    ::RingBuffer* target_rb = nullptr;
-    if (lanes) {
-        Lane* det_lane = thread_lanes_get_detail_lane(lanes);
-        target_rb = lane_get_active_ring(det_lane);
-    }
-    if (!target_rb) {
-        target_rb = reinterpret_cast<::RingBuffer*>(ctx->detail_ring());
+    // Prefer global ring by default (I5); enable per-thread only via env gate
+    static bool enable_registry_rings = [](){
+        const char* e = getenv("ADA_ENABLE_REGISTRY_RINGS");
+        return e && e[0] != '\0' && e[0] != '0';
+    }();
+    ::RingBuffer* target_rb = reinterpret_cast<::RingBuffer*>(ctx->detail_ring());
+    if (enable_registry_rings) {
+        ThreadLaneSet* lanes = ada_get_thread_lane();
+        if (lanes) {
+            Lane* det_lane = thread_lanes_get_detail_lane(lanes);
+            ::RingBuffer* t = lane_get_active_ring(det_lane);
+            if (t) target_rb = t;
+        }
     }
 
     bool wrote = ring_buffer_write(target_rb, &detail);
     // Mirror to process-global detail ring for compatibility
-    if (ctx->detail_ring()) {
-        (void)ring_buffer_write(reinterpret_cast<::RingBuffer*>(ctx->detail_ring()), &detail);
+    if (ctx->detail_ring() && target_rb != reinterpret_cast<::RingBuffer*>(ctx->detail_ring())) {
+        ::RingBuffer* grb = reinterpret_cast<::RingBuffer*>(ctx->detail_ring());
+        (void)ring_buffer_write(grb, &detail);
     }
     if (wrote) {
         g_debug("[Agent] Wrote detail event\n");
@@ -666,7 +689,7 @@ void on_enter_callback(GumInvocationContext* ic, gpointer user_data) {
     }
     tls->enter_handler();
     
-    g_debug("[Agent] on_enter: %s\n", hook->function_name.c_str());
+    if (ada::internal::g_agent_verbose) g_debug("[Agent] on_enter: %s\n", hook->function_name.c_str());
     
     // Increment call depth
     tls->increment_depth();
@@ -694,7 +717,7 @@ void on_leave_callback(GumInvocationContext* ic, gpointer user_data) {
     }
     tls->enter_handler();
     
-    g_debug("[Agent] on_leave: %s\n", hook->function_name.c_str());
+    if (ada::internal::g_agent_verbose) g_debug("[Agent] on_leave: %s\n", hook->function_name.c_str());
     
     // Capture index event
     capture_index_event(ctx, hook, tls, EVENT_KIND_RETURN);
@@ -727,7 +750,7 @@ void agent_init(const gchar* data, gint data_size) {
     // Initialize GUM first before using any GLib functions
     gum_init_embedded();
     
-    g_debug("[Agent] Initializing with data size: %d\n", data_size);
+    if (ada::internal::g_agent_verbose) g_debug("[Agent] Initializing with data size: %d\n", data_size);
     
     // Parse initialization data
     uint32_t arg_host = 0, arg_sid = 0;
@@ -735,7 +758,7 @@ void agent_init(const gchar* data, gint data_size) {
     ada::internal::g_host_pid = arg_host;
     ada::internal::g_session_id = arg_sid;
     
-    g_debug("[Agent] Parsed host_pid=%u, session_id=%u\n", 
+    if (ada::internal::g_agent_verbose) g_debug("[Agent] Parsed host_pid=%u, session_id=%u\n", 
             ada::internal::g_host_pid, ada::internal::g_session_id);
     
     // Get singleton context (thread-safe, initialized once)

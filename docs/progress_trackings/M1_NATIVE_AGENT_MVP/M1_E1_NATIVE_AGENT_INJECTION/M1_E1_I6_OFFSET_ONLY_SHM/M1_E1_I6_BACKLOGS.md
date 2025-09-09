@@ -21,6 +21,10 @@ Dependencies: I5 complete
 - Add header-only raw ring operations working directly on RingBufferHeader (no handles).
 - Update lane accessors to compute addresses per call and invoke raw helpers.
 
+3.5) Controller caching (2h)
+- Cache attached per-thread ring views by slot index in the controller to avoid repeated attach/destroy.
+- Validate lifetime across iterations and thread unregister/re-register.
+
 4) Tests and perf (4h)
 - Unit: invariants and materialization.
 - Integration: attach + round-trip.
@@ -32,3 +36,7 @@ Dependencies: I5 complete
 ## Acceptance
 - All I6 tests pass; no regressions in prior suites.
 - SHM inspection confirms offsets-only representation.
+
+## Notes
+- I6 will remove the `ADA_ENABLE_REGISTRY_RINGS` gate by making the offset-only registry path the default data-plane once stable.
+- Global rings drain path can remain as fallback/testing option until fully retired.

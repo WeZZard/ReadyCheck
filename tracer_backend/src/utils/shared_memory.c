@@ -19,7 +19,7 @@ typedef struct __SharedMemory {
     bool is_creator;
 } __SharedMemory;
 
-#define DEBUG 1
+#define DEBUG 0
 
 #if DEBUG
 #define DEBUG_LOG(...) fprintf(stderr, __VA_ARGS__)
@@ -28,17 +28,6 @@ typedef struct __SharedMemory {
 #endif
 
 #define SHM_NAME_MAX 31
-
-// Simple 32-bit FNV-1a hash for short role identifiers
-static uint32_t shm_hash32(const char* s)
-{
-    uint32_t hash = 2166136261u;
-    for (const unsigned char* p = (const unsigned char*) s; *p; p++) {
-        hash ^= (uint32_t) *p;
-        hash *= 16777619u;
-    }
-    return hash;
-}
 
 // Typed constants (defined here; declared in header)
 const char ADA_SHM_PREFIX[] = "ada";
