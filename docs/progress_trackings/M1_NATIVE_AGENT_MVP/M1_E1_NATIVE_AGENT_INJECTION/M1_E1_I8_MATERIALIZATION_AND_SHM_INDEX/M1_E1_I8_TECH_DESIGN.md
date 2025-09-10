@@ -1,4 +1,4 @@
-# M1_E1_I7 Technical Design: Address Materialization & SHM Index Registration
+# M1_E1_I8 Technical Design: Address Materialization & SHM Index Registration
 
 ## Overview
 Introduce a canonical shared-memory (SHM) index directory and implement per-process address materialization using that directory. Both agent and controller register the same SHM indices, ensuring consistent (index, offset) addressing across processes. No cache invalidation; layouts are immutable for the session.

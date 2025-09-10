@@ -686,21 +686,16 @@ void FridaController::drain_thread_main() {
         size_t index_count = 0;
         size_t detail_count = 0;
 
-        static bool enable_registry_rings = [](){
-            const char* e = getenv("ADA_ENABLE_REGISTRY_RINGS");
-            return e && e[0] != '\0' && e[0] != '0';
-        }();
-        if (registry_ && enable_registry_rings) {
+        if (registry_) {
             // Drain per-thread lanes when registry is available
             uint32_t cap = thread_registry_get_capacity(registry_);
             for (uint32_t i = 0; i < cap; ++i) {
                 ::ThreadLaneSet* lanes = thread_registry_get_thread_at(registry_, i);
                 if (!lanes) continue;
                 ::Lane* idx_lane = thread_lanes_get_index_lane(lanes);
-                ::RingBuffer* idx_rb = thread_registry_attach_active_ring(registry_, idx_lane,
-                                                                          64 * 1024, sizeof(IndexEvent));
-                if (idx_rb) {
-                    size_t n = ring_buffer_read_batch(idx_rb, index_events.get(), INDEX_BATCH_SIZE);
+                RingBufferHeader* idx_hdr = thread_registry_get_active_ring_header(registry_, idx_lane);
+                if (idx_hdr) {
+                    size_t n = ring_buffer_read_batch_raw(idx_hdr, sizeof(IndexEvent), index_events.get(), INDEX_BATCH_SIZE);
                     if (n > 0) {
                         index_count += n;
                         stats_.events_captured += n;
@@ -709,14 +704,12 @@ void FridaController::drain_thread_main() {
                             fwrite(index_events.get(), sizeof(IndexEvent), n, output_file_);
                         }
                     }
-                    ring_buffer_destroy(idx_rb);
                 }
 
                 ::Lane* det_lane = thread_lanes_get_detail_lane(lanes);
-                ::RingBuffer* det_rb = thread_registry_attach_active_ring(registry_, det_lane,
-                                                                          256 * 1024, sizeof(DetailEvent));
-                if (det_rb) {
-                    size_t n = ring_buffer_read_batch(det_rb, detail_events.get(), DETAIL_BATCH_SIZE);
+                RingBufferHeader* det_hdr = thread_registry_get_active_ring_header(registry_, det_lane);
+                if (det_hdr) {
+                    size_t n = ring_buffer_read_batch_raw(det_hdr, sizeof(DetailEvent), detail_events.get(), DETAIL_BATCH_SIZE);
                     if (n > 0) {
                         detail_count += n;
                         stats_.events_captured += n;
@@ -725,7 +718,6 @@ void FridaController::drain_thread_main() {
                             fwrite(detail_events.get(), sizeof(DetailEvent), n, output_file_);
                         }
                     }
-                    ring_buffer_destroy(det_rb);
                 }
             }
         }

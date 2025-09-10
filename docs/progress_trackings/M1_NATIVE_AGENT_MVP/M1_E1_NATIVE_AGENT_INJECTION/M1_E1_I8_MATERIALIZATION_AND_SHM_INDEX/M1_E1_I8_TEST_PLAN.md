@@ -1,4 +1,4 @@
-# M1_E1_I7 Test Plan: Address Materialization & SHM Index Registration
+# M1_E1_I8 Test Plan: Address Materialization & SHM Index Registration
 
 ## Unit Tests
 1) directory__published__then_indices_stable
@@ -27,4 +27,3 @@
 - [ ] Canonical directory read/write works and matches across processes
 - [ ] Accessors work via (index, offset) materialization
 - [ ] Robust attach error handling for mismatches
-

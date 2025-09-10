@@ -71,6 +71,24 @@ target_link_libraries(test_thread_registry
     Threads::Threads
 )
 
+# Offsets materialization tests (prototype for offsets-only SHM)
+add_executable(test_offsets_materialization
+    test_offsets_materialization.cpp
+)
+target_include_directories(test_offsets_materialization
+    PRIVATE
+        ${CMAKE_SOURCE_DIR}/include/utils
+        ${CMAKE_SOURCE_DIR}/src/utils
+)
+target_link_libraries(test_offsets_materialization
+    PRIVATE
+        test_main
+        GTest::gtest
+        GTest::gmock
+        tracer_utils
+        Threads::Threads
+)
+
 # ADA TLS + Registration test
 add_executable(test_thread_registration_tls
     test_thread_registration_tls.cpp
@@ -119,6 +137,12 @@ gtest_discover_tests(test_thread_registration_tls
     DISCOVERY_TIMEOUT 60
     PROPERTIES LABELS "unit"
 )
+gtest_discover_tests(test_offsets_materialization
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+    DISCOVERY_MODE PRE_TEST
+    DISCOVERY_TIMEOUT 60
+    PROPERTIES LABELS "unit"
+)
 
 # Install targets
 install(TARGETS
@@ -127,5 +151,6 @@ install(TARGETS
     test_shared_memory
     test_thread_registry
     test_thread_registration_tls
+    test_offsets_materialization
     RUNTIME DESTINATION bin
 )

@@ -37,6 +37,8 @@ Dependencies: I5 complete
 - All I6 tests pass; no regressions in prior suites.
 - SHM inspection confirms offsets-only representation.
 
+Status update: All tasks completed; unit and integration tests passing locally. Agent/controller updated to use header-only operations; compatibility fallback preserved.
+
 ## Notes
 - I6 will remove the `ADA_ENABLE_REGISTRY_RINGS` gate by making the offset-only registry path the default data-plane once stable.
 - Global rings drain path can remain as fallback/testing option until fully retired.

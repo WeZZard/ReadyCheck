@@ -549,7 +549,7 @@ static void capture_index_event(AgentContext* ctx, HookData* hook,
     event.call_depth = tls->call_depth();
     event._padding = 0;
     
-    // Prefer global ring by default (I5); enable per-thread only via env gate
+    // Prefer per-thread registry rings only if enabled via env gate
     static bool enable_registry_rings = [](){
         const char* e = getenv("ADA_ENABLE_REGISTRY_RINGS");
         return e && e[0] != '\0' && e[0] != '0';
@@ -559,16 +559,29 @@ static void capture_index_event(AgentContext* ctx, HookData* hook,
         ThreadLaneSet* lanes = ada_get_thread_lane();
         if (lanes) {
             Lane* idx_lane = thread_lanes_get_index_lane(lanes);
-            ::RingBuffer* t = lane_get_active_ring(idx_lane);
-            if (t) target_rb = t;
+            ::ThreadRegistry* reg = ada_get_global_registry();
+            if (reg) {
+                RingBufferHeader* hdr = thread_registry_get_active_ring_header(reg, idx_lane);
+                if (hdr) {
+                    bool wrote = ring_buffer_write_raw(hdr, sizeof(IndexEvent), &event);
+                    if (wrote) {
+                        g_debug("[Agent] Wrote index event (raw)\n");
+                        ctx->increment_events_emitted();
+                    } else {
+                        g_debug("[Agent] Failed to write index event (raw)\n");
+                    }
+                    // Mirror to process-global ring for compatibility
+                    if (ctx->index_ring()) {
+                        ::RingBuffer* grb = reinterpret_cast<::RingBuffer*>(ctx->index_ring());
+                        (void)ring_buffer_write(grb, &event);
+                    }
+                    return;
+                }
+            }
         }
     }
 
     bool wrote = ring_buffer_write(target_rb, &event);
-    if (ctx->index_ring() && target_rb != reinterpret_cast<::RingBuffer*>(ctx->index_ring())) {
-        ::RingBuffer* grb = reinterpret_cast<::RingBuffer*>(ctx->index_ring());
-        (void)ring_buffer_write(grb, &event);
-    }
     if (wrote) {
         g_debug("[Agent] Wrote index event\n");
         ctx->increment_events_emitted();
@@ -643,7 +656,7 @@ static void capture_detail_event(AgentContext* ctx, HookData* hook,
         }
     }
     
-    // Prefer global ring by default (I5); enable per-thread only via env gate
+    // Prefer per-thread registry rings only if enabled via env gate
     static bool enable_registry_rings = [](){
         const char* e = getenv("ADA_ENABLE_REGISTRY_RINGS");
         return e && e[0] != '\0' && e[0] != '0';
@@ -653,17 +666,29 @@ static void capture_detail_event(AgentContext* ctx, HookData* hook,
         ThreadLaneSet* lanes = ada_get_thread_lane();
         if (lanes) {
             Lane* det_lane = thread_lanes_get_detail_lane(lanes);
-            ::RingBuffer* t = lane_get_active_ring(det_lane);
-            if (t) target_rb = t;
+            ::ThreadRegistry* reg = ada_get_global_registry();
+            if (reg) {
+                RingBufferHeader* hdr = thread_registry_get_active_ring_header(reg, det_lane);
+                if (hdr) {
+                    bool wrote = ring_buffer_write_raw(hdr, sizeof(DetailEvent), &detail);
+                    if (wrote) {
+                        g_debug("[Agent] Wrote detail event (raw)\n");
+                        ctx->increment_events_emitted();
+                    } else {
+                        g_debug("[Agent] Failed to write detail event (raw)\n");
+                    }
+                    // Mirror to process-global detail ring for compatibility
+                    if (ctx->detail_ring()) {
+                        ::RingBuffer* grb = reinterpret_cast<::RingBuffer*>(ctx->detail_ring());
+                        (void)ring_buffer_write(grb, &detail);
+                    }
+                    return;
+                }
+            }
         }
     }
 
     bool wrote = ring_buffer_write(target_rb, &detail);
-    // Mirror to process-global detail ring for compatibility
-    if (ctx->detail_ring() && target_rb != reinterpret_cast<::RingBuffer*>(ctx->detail_ring())) {
-        ::RingBuffer* grb = reinterpret_cast<::RingBuffer*>(ctx->detail_ring());
-        (void)ring_buffer_write(grb, &detail);
-    }
     if (wrote) {
         g_debug("[Agent] Wrote detail event\n");
         ctx->increment_events_emitted();

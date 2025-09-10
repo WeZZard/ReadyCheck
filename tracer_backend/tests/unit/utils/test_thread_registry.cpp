@@ -51,6 +51,8 @@ protected:
         
         registry = ada::internal::ThreadRegistry::create(memory, memory_size, MAX_THREADS);
         ASSERT_NE(registry, nullptr) << "Failed to initialize thread registry";
+        // Set global registry for lane member methods that materialize via offsets
+        ada_set_global_registry(reinterpret_cast<ThreadRegistry*>(registry));
     }
 
     void TearDown() override {
@@ -159,6 +161,11 @@ TEST_F(ThreadRegistryTest, spsc_queue__single_producer__then_maintains_order) {
     ASSERT_NE(lanes, nullptr);
     
     auto* lane = &lanes->index_lane;
+    // Materialize layout from offsets
+    uint8_t* reg_base = reinterpret_cast<uint8_t*>(registry);
+    auto& seg = registry->segments[0];
+    uint8_t* pool_base = reg_base + seg.base_offset;
+    auto* layout = reinterpret_cast<ada::internal::LaneMemoryLayout*>(pool_base + lanes->index_layout_off);
     
     // Submit some rings
     EXPECT_TRUE(lane->submit_ring(1));
@@ -172,19 +179,19 @@ TEST_F(ThreadRegistryTest, spsc_queue__single_producer__then_maintains_order) {
     EXPECT_NE(head, tail) << "Queue should not be empty";
     
     // Read first ring
-    uint32_t ring1 = lane->memory_layout->submit_queue[head];
+    uint32_t ring1 = layout->submit_queue[head];
     lane->submit_head.store((head + 1) % QUEUE_COUNT_INDEX_LANE, std::memory_order_release);
     EXPECT_EQ(ring1, 1);
     
     // Read second ring
     head = lane->submit_head.load(std::memory_order_relaxed);
-    uint32_t ring2 = lane->memory_layout->submit_queue[head];
+    uint32_t ring2 = layout->submit_queue[head];
     lane->submit_head.store((head + 1) % QUEUE_COUNT_INDEX_LANE, std::memory_order_release);
     EXPECT_EQ(ring2, 2);
     
     // Read third ring
     head = lane->submit_head.load(std::memory_order_relaxed);
-    uint32_t ring3 = lane->memory_layout->submit_queue[head];
+    uint32_t ring3 = layout->submit_queue[head];
     lane->submit_head.store((head + 1) % QUEUE_COUNT_INDEX_LANE, std::memory_order_release);
     EXPECT_EQ(ring3, 3);
     
@@ -200,6 +207,10 @@ TEST_F(ThreadRegistryTest, spsc_queue__wraparound__then_correct) {
     ASSERT_NE(lanes, nullptr);
     
     auto* lane = &lanes->index_lane;
+    uint8_t* reg_base = reinterpret_cast<uint8_t*>(registry);
+    auto& seg = registry->segments[0];
+    uint8_t* pool_base = reg_base + seg.base_offset;
+    auto* layout = reinterpret_cast<ada::internal::LaneMemoryLayout*>(pool_base + lanes->index_layout_off);
     
     // Fill and drain multiple times to test wraparound
     // The queue wraps around after QUEUE_COUNT_INDEX_LANE operations
@@ -220,7 +231,7 @@ TEST_F(ThreadRegistryTest, spsc_queue__wraparound__then_correct) {
             
             EXPECT_NE(head, tail) << "Queue should have items at round " << round << " item " << i;
             
-            uint32_t ring_idx = lane->memory_layout->submit_queue[head];
+            uint32_t ring_idx = layout->submit_queue[head];
             lane->submit_head.store((head + 1) % QUEUE_COUNT_INDEX_LANE, std::memory_order_release);
             
             // We submitted rings 1, 2, 3
@@ -240,7 +251,11 @@ TEST_F(ThreadRegistryTest, free_queue__return_and_get__then_works) {
     ASSERT_NE(lanes, nullptr);
     
     auto* lane = &lanes->index_lane;
-    
+    uint8_t* reg_base = reinterpret_cast<uint8_t*>(registry);
+    auto& seg2 = registry->segments[0];
+    uint8_t* pool_base2 = reg_base + seg2.base_offset;
+    auto* layout2 = reinterpret_cast<ada::internal::LaneMemoryLayout*>(pool_base2 + lanes->index_layout_off);
+
     // Free queue should have rings 1, 2, 3 initially (0 is active)
     // Get free rings
     for (uint32_t expected = 1; expected < RINGS_PER_INDEX_LANE; expected++) {
@@ -249,7 +264,7 @@ TEST_F(ThreadRegistryTest, free_queue__return_and_get__then_works) {
         
         EXPECT_NE(head, tail) << "Free queue should have rings";
         
-        uint32_t ring_idx = lane->memory_layout->free_queue[head];
+        uint32_t ring_idx = layout2->free_queue[head];
         lane->free_head.store((head + 1) % QUEUE_COUNT_INDEX_LANE, std::memory_order_release);
         
         EXPECT_EQ(ring_idx, expected) << "Should get ring " << expected;
@@ -268,7 +283,7 @@ TEST_F(ThreadRegistryTest, free_queue__return_and_get__then_works) {
         
         EXPECT_NE(next, head) << "Free queue should have space";
         
-        lane->memory_layout->free_queue[tail] = i;
+        layout2->free_queue[tail] = i;
         lane->free_tail.store(next, std::memory_order_release);
     }
     
@@ -279,7 +294,7 @@ TEST_F(ThreadRegistryTest, free_queue__return_and_get__then_works) {
         
         EXPECT_NE(head, tail) << "Free queue should have rings";
         
-        uint32_t ring_idx = lane->memory_layout->free_queue[head];
+        uint32_t ring_idx = layout2->free_queue[head];
         lane->free_head.store((head + 1) % QUEUE_COUNT_INDEX_LANE, std::memory_order_release);
         
         EXPECT_EQ(ring_idx, expected) << "Should get ring " << expected;
@@ -485,14 +500,16 @@ TEST_F(ThreadRegistryTest, thread_registry__memory_layout__then_debuggable) {
     auto* lanes = registry->register_thread(12345);
     ASSERT_NE(lanes, nullptr);
     
-    EXPECT_NE(lanes->index_lane.memory_layout, nullptr);
-    EXPECT_NE(lanes->detail_lane.memory_layout, nullptr);
-    
-    auto* index_layout = lanes->index_lane.memory_layout;
+    uint8_t* reg_base = reinterpret_cast<uint8_t*>(registry);
+    auto& seg = registry->segments[0];
+    uint8_t* pool_base = reg_base + seg.base_offset;
+    auto* index_layout = reinterpret_cast<ada::internal::LaneMemoryLayout*>(pool_base + lanes->index_layout_off);
+    ASSERT_NE(index_layout, nullptr);
     for (uint32_t i = 0; i < RINGS_PER_INDEX_LANE; i++) {
-        EXPECT_NE(index_layout->ring_ptrs[i], nullptr) << "Ring " << i << " should be initialized";
+        EXPECT_GT(index_layout->ring_descs[i].bytes, 0u) << "Ring " << i << " bytes should be set";
+        EXPECT_GT(index_layout->ring_descs[i].offset, 0ull) << "Ring " << i << " offset should be set";
     }
-    // Direct memory access is possible (debuggability)
+    // Direct access to queues remains
     index_layout->submit_queue[0] = 42;
     EXPECT_EQ(index_layout->submit_queue[0], 42u);
 }
@@ -509,7 +526,10 @@ TEST_F(ThreadRegistryTest, thread_registry__alignment_structures__then_cache_ali
     // Queue alignment
     auto* lanes = registry->register_thread(67890);
     ASSERT_NE(lanes, nullptr);
-    auto* index_layout = lanes->index_lane.memory_layout;
+    uint8_t* reg_base2 = reinterpret_cast<uint8_t*>(registry);
+    auto& seg3 = registry->segments[0];
+    uint8_t* pool_base3 = reg_base2 + seg3.base_offset;
+    auto* index_layout = reinterpret_cast<ada::internal::LaneMemoryLayout*>(pool_base3 + lanes->index_layout_off);
     EXPECT_EQ(reinterpret_cast<uintptr_t>(index_layout->submit_queue) % CACHE_LINE_SIZE, 0u);
     EXPECT_EQ(reinterpret_cast<uintptr_t>(index_layout->free_queue) % CACHE_LINE_SIZE, 0u);
 }

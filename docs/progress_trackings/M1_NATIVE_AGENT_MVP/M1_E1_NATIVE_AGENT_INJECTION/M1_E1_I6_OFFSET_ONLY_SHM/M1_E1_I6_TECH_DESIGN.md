@@ -32,6 +32,12 @@ SHM remains a single arena in this iteration. All offsets are relative to the re
   3. Use header-only raw ring operations that act directly on `RingBufferHeader` and payload memory (no heap objects, no stored handles).
 - All helpers are `inline` and designed to be cache-friendly; no persistent materialized addresses are stored between calls.
 
+### Raw Ring Helpers (Header-Only)
+- Introduced C helpers for offsets-only consumers/producers:
+  - `ring_buffer_write_raw`, `ring_buffer_read_raw`, `ring_buffer_read_batch_raw`
+  - `ring_buffer_available_read_raw`, `ring_buffer_available_write_raw`
+- These operate on a `RingBufferHeader*` and adjacent payload region; used by agent and controller.
+
 ### Registration (Writer)
 - On slot allocation, writer (agent) initializes lane layouts by:
   - Allocating layout and ring regions out of the SHM arena bump allocator.
@@ -79,6 +85,27 @@ typedef struct {
 } ThreadLaneSet_SHM;
 ```
 
+Implementation note:
+- In-process producer/consumer code does not store absolute pointers in SHM. Where a process-local pointer is needed, it is materialized transiently from offsets (e.g., in agent/controller fast paths) via a helper that returns a `RingBufferHeader*` from `(registry_base + segment.base_offset + layout.ring_desc[i].offset)`.
+
+## Examples
+
+1) Layout materialization from offsets
+- Given a `ThreadLaneSet` with `index_layout_off` and a known `registry_base` and `segments[0].base_offset`, compute:
+  - `auto* layout = (LaneMemoryLayout*)(registry_base + segments[0].base_offset + index_layout_off);`
+- Verify queue access by writing/reading `submit_queue[0]`.
+
+2) Attach using ring descriptor offsets (no stored handle)
+- From `layout->ring_descs[idx]` compute:
+  - `uint8_t* ring_ptr = seg_base + desc.offset;`
+  - Attach a temporary handle: `ring_buffer_attach(ring_ptr, desc.bytes, sizeof(IndexEvent))` to validate round-trip.
+
+3) Raw header-only round-trip
+- Compute `RingBufferHeader* hdr = (RingBufferHeader*)(seg_base + desc.offset);`
+- Use `ring_buffer_write_raw(hdr, sizeof(IndexEvent), &ev)` then `ring_buffer_read_raw(...)` and assert equality.
+
+These examples are codified in `tests/unit/utils/test_offsets_materialization.cpp` and exercised in CI.
+
 ## Accessor Changes
 - `lane_submit_ring`, `lane_take_ring`, `lane_return_ring`, `lane_swap_active_ring` compute queue addresses from `layout_off` per call.
 - Event emission uses inline raw ring helpers on `(base + ring_desc[i].offset)` without persistent handles.
@@ -88,6 +115,8 @@ typedef struct {
 2. Accessors function correctly using offsets-only SHM.
 3. No measurable hot-path regression after warmup; registration cost unchanged. Target remains < 10ns avg per cached scenario even with per-call address computation; verify via perf tests.
 4. All existing unit/integration/perf tests pass with updated assertions.
+
+Status: Verified via unit tests (`test_thread_registry`, `test_offsets_materialization`) and integration tests (`test_thread_registry_integration`).
 
 ## Risks & Mitigations
 - Risk: Missed pointer fields in SHM. Mitigation: add tests asserting zeroed pointer fields and presence of offsets.

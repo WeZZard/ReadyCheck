@@ -1,4 +1,4 @@
-# M1_E1_I8 Technical Design: Ring Pool Swap Protocol
+# M1_E1_I9 Technical Design: Ring Pool Swap Protocol
 
 ## Overview
 

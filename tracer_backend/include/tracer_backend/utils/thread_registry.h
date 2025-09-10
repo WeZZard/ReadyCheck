@@ -96,11 +96,6 @@ bool lane_return_ring(Lane* lane, uint32_t ring_idx);
 // Memory ordering: Uses memory_order_acquire for consuming
 uint32_t lane_get_free_ring(Lane* lane);
 
-// Get current active ring for writing
-// lane: lane to query
-// Returns: pointer to active RingBuffer
-// Note: Moved to non-inline implementation due to opaque types
-struct RingBuffer* lane_get_active_ring(Lane* lane);
 
 // ============================================================================
 // Drain thread operations
@@ -123,12 +118,10 @@ uint32_t thread_registry_get_capacity(ThreadRegistry* registry);
 // Unregister a thread by system thread id; updates active set and counts
 bool thread_registry_unregister_by_id(ThreadRegistry* registry, uintptr_t thread_id);
 
-// Attach a temporary RingBuffer handle to the lane's active ring using registry's base
-// ring_size/event_size must match the lane type
-struct RingBuffer* thread_registry_attach_active_ring(ThreadRegistry* registry,
-                                                     Lane* lane,
-                                                     size_t ring_size,
-                                                     size_t event_size);
+
+// Get active ring header directly (for raw, header-only operations)
+RingBufferHeader* thread_registry_get_active_ring_header(ThreadRegistry* registry,
+                                                        Lane* lane);
 
 // ============================================================================
 // Thread-local storage

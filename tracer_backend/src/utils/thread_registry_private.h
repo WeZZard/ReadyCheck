@@ -10,12 +10,16 @@
 #include <tracer_backend/utils/ring_buffer.h>
 // Need private definitions for concrete implementation
 #include "tracer_types_private.h"
+#include <tracer_backend/ada/thread.h>
 
 // Optional logging flag defined in C shim (thread_registry.cpp)
 extern bool needs_log_thread_registry_registry;
 
 namespace ada {
 namespace internal {
+
+class ThreadRegistry; // forward decl
+class ThreadLaneSet; // forward decl
 
 // ============================================================================
 // Structured Lane Memory Layout (debugger-friendly)
@@ -29,31 +33,21 @@ struct LaneMemoryLayout {
         uint32_t bytes;        // Size of the ring buffer in bytes
         uint64_t offset;       // Byte offset from segment base
     };
-    // Ring buffer pointers array (just void* to memory regions)
-    void* ring_ptrs[RINGS_PER_INDEX_LANE];
-    // RingBuffer handles bound to ring_ptrs (attached)
-    ::RingBuffer* rb_handles[RINGS_PER_INDEX_LANE]{};
-    
-    // Pointer to ring buffer memory (allocated separately)
-    void* ring_memory_base;
-    size_t ring_memory_size;
-    
-    // SPSC queues - explicit arrays
+
+    // SPSC queues - explicit arrays (remain in SHM)
     alignas(CACHE_LINE_SIZE)
     uint32_t submit_queue[QUEUE_COUNT_INDEX_LANE];
     
     alignas(CACHE_LINE_SIZE)
     uint32_t free_queue[QUEUE_COUNT_INDEX_LANE];
     
-    // Debug helper: print layout info
+    // Debug helper: print layout info (offsets only)
     void debug_print() const {
         printf("LaneMemoryLayout at %p:\n", this);
-        printf("  ring_ptrs:    %p - %p\n", ring_ptrs, ring_ptrs + RINGS_PER_INDEX_LANE);
         printf("  ring_descs[0]: seg=%u off=%llu bytes=%u\n",
                ring_descs[0].segment_id,
                (unsigned long long)ring_descs[0].offset,
                ring_descs[0].bytes);
-        printf("  ring_memory:  %p (size=%zu)\n", ring_memory_base, ring_memory_size);
         printf("  submit_queue: %p - %p\n", submit_queue, submit_queue + QUEUE_COUNT_INDEX_LANE);
         printf("  free_queue:   %p - %p\n", free_queue, free_queue + QUEUE_COUNT_INDEX_LANE);
     }
@@ -104,46 +98,18 @@ public:
     std::atomic<uint64_t> bytes_written{0};
     std::atomic<uint32_t> ring_swaps{0};
     
-    // Memory pointers - but now they point to STRUCTURED data
-    LaneMemoryLayout* memory_layout{nullptr};
-    
     // Initialize lane with structured memory
-    void initialize(LaneMemoryLayout* layout, uint32_t num_rings, size_t ring_size, size_t event_size, uint32_t queue_capacity) {
+    void initialize(LaneMemoryLayout* /*layout*/, uint32_t num_rings, size_t ring_size, size_t event_size, uint32_t queue_capacity) {
         if (needs_log_thread_registry_registry) printf("DEBUG: Lane::initialize start - num_rings=%u, ring_size=%zu, qcap=%u\n", num_rings, ring_size, queue_capacity);
-        memory_layout = layout;
         ring_count = num_rings;
         submit_capacity = queue_capacity;
         free_capacity = queue_capacity;
-        
-        // Ring buffers are already set up in memory, just verify pointers
-        if (layout->ring_memory_base) {
-            if (needs_log_thread_registry_registry) printf("DEBUG: Verifying %u ring buffer pointers\n", num_rings);
-            for (uint32_t i = 0; i < num_rings; ++i) {
-                if (!layout->ring_ptrs[i]) {
-                    if (needs_log_thread_registry_registry) printf("DEBUG: ERROR - ring_ptrs[%u] is NULL!\n", i);
-                } else {
-                    if (needs_log_thread_registry_registry) printf("DEBUG: Ring[%u] at %p\n", i, layout->ring_ptrs[i]);
-                }
-            }
-        } else {
-            if (needs_log_thread_registry_registry) printf("DEBUG: ERROR - ring_memory_base is NULL!\n");
-        }
-
-        // Initialize ring buffer handles for each ring (create headers in shared memory)
-        for (uint32_t i = 0; i < num_rings; ++i) {
-            if (layout->ring_ptrs[i]) {
-                layout->rb_handles[i] = ring_buffer_create(layout->ring_ptrs[i], ring_size, event_size);
-            } else {
-                layout->rb_handles[i] = nullptr;
-            }
-        }
+        // Ring headers are initialized during registration using offsets; no persistent handles
         
         if (needs_log_thread_registry_registry) printf("DEBUG: Initializing free queue with num_rings=%u\n", num_rings);
-        // Initialize free queue with all rings except active (0)
+        // Initialize free queue indices; actual queue array is initialized by registration code
         for (uint32_t i = 1; i < num_rings; ++i) {
-            if (needs_log_thread_registry_registry) { printf("DEBUG: Setting free_queue[%u] = %u\n", i-1, i); fflush(stdout); }
-            layout->free_queue[i - 1] = i;
-            if (needs_log_thread_registry_registry) { printf("DEBUG: free_queue[%u] set successfully\n", i-1); fflush(stdout); }
+            (void)i;
         }
         if (needs_log_thread_registry_registry) printf("DEBUG: Setting free_tail to %u\n", num_rings - 1);
         free_tail.store(num_rings - 1, std::memory_order_release);
@@ -151,25 +117,10 @@ public:
     }
     
     // Submit ring for draining (with bounds checking)
-    bool submit_ring(uint32_t ring_idx) {
-        if (ring_idx >= ring_count) return false;
-        
-        auto head = submit_head.load(std::memory_order_relaxed);
-        auto tail = submit_tail.load(std::memory_order_acquire);
-        auto next = (tail + 1) % submit_capacity;
-        
-        if (next == head) return false; // Queue full
-        
-        memory_layout->submit_queue[tail] = ring_idx;
-        submit_tail.store(next, std::memory_order_release);
-        return true;
-    }
+    bool submit_ring(uint32_t ring_idx);
     
     // Get active ring buffer
-    void* get_active_ring() {
-        auto idx = active_idx.load(std::memory_order_relaxed);
-        return memory_layout->rb_handles[idx];
-    }
+    void* get_active_ring() { return nullptr; }
     
     // Debug print
     void debug_print() const {
@@ -177,9 +128,7 @@ public:
         printf("  active_idx: %u\n", active_idx.load());
         printf("  ring_count: %u\n", ring_count);
         printf("  events_written: %llu\n", (unsigned long long)events_written.load());
-        if (memory_layout) {
-            memory_layout->debug_print();
-        }
+        // LaneMemoryLayout is now addressed via offsets; debug_print for layout is omitted here
     }
 };
 
@@ -193,6 +142,12 @@ public:
     uintptr_t thread_id{0};
     uint32_t slot_index{0};
     std::atomic<bool> active{false};
+
+    // Offsets to lane memory layouts within the unified SHM pool (prototype for offsets-only SHM)
+    // These are relative to the segment base (segments[seg_id-1].base_offset) and can be
+    // materialized as: reg_base + segment.base_offset + layout_off
+    uint64_t index_layout_off{0};
+    uint64_t detail_layout_off{0};
     
     // Lanes with structured memory
     Lane index_lane;
@@ -301,9 +256,7 @@ public:
             lane_set->slot_index = i;
             lane_set->thread_id = 0;
             lane_set->active.store(false);
-            // Lane layouts will be assigned on registration
-            lane_set->index_lane.memory_layout = nullptr;
-            lane_set->detail_lane.memory_layout = nullptr;
+            // Lane layouts will be assigned on registration (offsets only)
         }
         
         return registry;
@@ -380,8 +333,6 @@ public:
             }
             auto* idx_layout = reinterpret_cast<LaneMemoryLayout*>(pool_base + idx_layout_off);
             std::memset(idx_layout, 0, sizeof(LaneMemoryLayout));
-            idx_layout->ring_memory_base = pool_base;
-            idx_layout->ring_memory_size = segments[0].size;
 
             uint64_t det_layout_off = alloc_from(segments[0].used, sizeof(LaneMemoryLayout), segments[0].size, CACHE_LINE_SIZE);
             if (det_layout_off == UINT64_MAX) {
@@ -391,8 +342,6 @@ public:
             }
             auto* det_layout = reinterpret_cast<LaneMemoryLayout*>(pool_base + det_layout_off);
             std::memset(det_layout, 0, sizeof(LaneMemoryLayout));
-            det_layout->ring_memory_base = pool_base;
-            det_layout->ring_memory_size = segments[0].size;
             // Allocate index rings (from unified pool segment[0])
             for (uint32_t j = 0; j < RINGS_PER_INDEX_LANE; ++j) {
                 uint64_t off = alloc_from(segments[0].used, 64 * 1024, segments[0].size, 4096);
@@ -402,11 +351,16 @@ public:
                     if (needs_log_thread_registry_registry) printf("DEBUG: Out of index ring memory while registering thread %lx\n", thread_id);
                     return nullptr;
                 }
-                uint8_t* ring_ptr = pool_base + off;
-                idx_layout->ring_ptrs[j] = ring_ptr;
                 idx_layout->ring_descs[j].segment_id = 1;
                 idx_layout->ring_descs[j].bytes = 64 * 1024;
                 idx_layout->ring_descs[j].offset = off;
+                // Initialize ring header in-place using temporary handle
+                ::RingBuffer* tmp = ring_buffer_create(pool_base + off, 64 * 1024, sizeof(IndexEvent));
+                if (tmp) ring_buffer_destroy(tmp);
+            }
+            // Initialize index free queue with all rings except active (0)
+            for (uint32_t j = 1; j < RINGS_PER_INDEX_LANE; ++j) {
+                idx_layout->free_queue[j - 1] = j;
             }
             // Allocate detail rings (from unified pool segment[0])
             for (uint32_t j = 0; j < RINGS_PER_DETAIL_LANE; ++j) {
@@ -416,13 +370,21 @@ public:
                     if (needs_log_thread_registry_registry) printf("DEBUG: Out of detail ring memory while registering thread %lx\n", thread_id);
                     return nullptr;
                 }
-                uint8_t* ring_ptr = pool_base + off;
-                det_layout->ring_ptrs[j] = ring_ptr;
                 det_layout->ring_descs[j].segment_id = 1;
                 det_layout->ring_descs[j].bytes = 256 * 1024;
                 det_layout->ring_descs[j].offset = off;
+                ::RingBuffer* tmp = ring_buffer_create(pool_base + off, 256 * 1024, sizeof(DetailEvent));
+                if (tmp) ring_buffer_destroy(tmp);
+            }
+            // Initialize detail free queue with all rings except active (0)
+            for (uint32_t j = 1; j < RINGS_PER_DETAIL_LANE; ++j) {
+                det_layout->free_queue[j - 1] = j;
             }
             
+            // Record offsets for offsets-only materialization (prototype stage)
+            thread_lanes[slot].index_layout_off = idx_layout_off;
+            thread_lanes[slot].detail_layout_off = det_layout_off;
+
             thread_lanes[slot].initialize(
                 thread_id, 
                 slot,

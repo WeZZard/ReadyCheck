@@ -187,16 +187,6 @@ Lane* thread_lanes_get_index_lane(ThreadLaneSet* lanes);
  */
 Lane* thread_lanes_get_detail_lane(ThreadLaneSet* lanes);
 
-/**
- * Get active ring buffer for writing
- * 
- * @param lane Lane to get ring from
- * @return Active ring buffer
- * 
- * Performance: O(1) field access
- * Thread-safe: No (single producer)
- */
-RingBuffer* lane_get_active_ring(Lane* lane);
 
 /**
  * Submit full ring for draining

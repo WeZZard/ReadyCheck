@@ -17,76 +17,86 @@ Key changes to align with MVP requirements:
 - **Query Engine**: Replaced Analysis Tools with JSON-RPC Query Engine
 - **DSO Coverage**: Enhanced hooks to include dynamic libraries with excludes
 
-## Iteration Dependency Graph
+## Per‑Epic Dependency Graphs (isolated numbering per epic)
 
 ```mermaid
 graph TD
-    I1[I1: Shared Memory Setup]
-    I2[I2: Thread Registry]
-    I3[I3: Ring Buffer Core]
-    I4[I4: Agent Loader]
-    I5[I5: Thread Registration]
-    I6[I6: Ring Pool Swap]
-    I7[I7: Broad Coverage Hooks]
-    
-    I8[I8: Drain Thread]
-    I9[I9: Per-Thread Drain]
-    I10[I10: ATF V4 Writer]
-    I11[I11: CLI Parser]
-    I12[I12: Duration Timer]
-    I13[I13: Signal Shutdown]
-    I14[I14: Selective Persistence]
-    
-    I15[I15: Backpressure]
-    I16[I16: Metrics Collection]
-    I17[I17: Metrics Reporting]
-    I18[I18: Integration Tests]
-    
-    I19[I19: ATF Reader]
-    I20[I20: JSON-RPC Server]
-    I21[I21: Trace Info API]
-    I22[I22: Events Spans API]
-    
-    I23[I23: Getting Started]
-    I24[I24: Architecture Docs]
-    I25[I25: API Reference]
-    I26[I26: Examples]
-    
-    I1 --> I2
-    I1 --> I3
-    I2 --> I5
-    I3 --> I6
-    I4 --> I5
-    I5 --> I6
-    I6 --> I7
-    
-    I2 --> I8
-    I8 --> I9
-    I9 --> I10
-    I11 --> I12
-    I11 --> I14
-    I12 --> I13
-    I13 --> I14
-    
-    I9 --> I15
-    I15 --> I16
-    I16 --> I17
-    I7 --> I18
-    I14 --> I18
-    
-    I10 --> I19
-    I19 --> I20
-    I20 --> I21
-    I20 --> I22
-    I21 --> I22
-    
-    I18 --> I23
-    I23 --> I24
-    I24 --> I25
-    I25 --> I26
+    subgraph Epic 1 – Native Agent Injection
+        E1I1[M1_E1_I1: Shared Memory Setup]
+        E1I2[M1_E1_I2: Thread Registry]
+        E1I3[M1_E1_I3: Ring Buffer Core]
+        E1I4[M1_E1_I4: Agent Loader]
+        E1I5[M1_E1_I5: Thread Registration]
+        E1I6[M1_E1_I6: Offset‑Only SHM]
+        E1I7[M1_E1_I7: Readiness & Fallback]
+        E1I8[M1_E1_I8: Materialization & SHM Index]
+        E1I9[M1_E1_I9: Ring Pool Swap]
+        E1I10[M1_E1_I10: Broad Coverage Hooks]
+
+        E1I1 --> E1I2
+        E1I1 --> E1I3
+        E1I4 --> E1I5
+        E1I2 --> E1I5
+        E1I5 --> E1I6
+        E1I6 --> E1I7
+        E1I7 --> E1I8
+        E1I8 --> E1I9
+        E1I9 --> E1I10
+    end
+
+    subgraph Epic 2 – Index Pipeline
+        E2I1[M1_E2_I1: Drain Thread]
+        E2I2[M1_E2_I2: Per‑Thread Drain]
+        E2I3[M1_E2_I3: ATF V4 Writer]
+        E2I4[M1_E2_I4: CLI Parser]
+        E2I5[M1_E2_I5: Duration Timer]
+        E2I6[M1_E2_I6: Signal Shutdown]
+        E2I7[M1_E2_I7: Selective Persistence]
+
+        E2I1 --> E2I2
+        E2I2 --> E2I3
+        E2I4 --> E2I5
+        E2I5 --> E2I6
+        E2I3 --> E2I7
+        E2I6 --> E2I7
+    end
+
+    subgraph Epic 3 – Hardening
+        E3I1[M1_E3_I1: Backpressure]
+        E3I2[M1_E3_I2: Metrics Collection]
+        E3I3[M1_E3_I3: Metrics Reporting]
+        E3I4[M1_E3_I4: Integration Validation]
+
+        E3I1 --> E3I2
+        E3I2 --> E3I3
+        E3I2 --> E3I4
+        E3I3 --> E3I4
+    end
+
+    subgraph Epic 4 – Query Engine
+        E4I1[M1_E4_I1: ATF Reader]
+        E4I2[M1_E4_I2: JSON‑RPC Server]
+        E4I3[M1_E4_I3: Trace Info API]
+        E4I4[M1_E4_I4: Events Spans API]
+
+        E4I2 --> E4I3
+        E4I2 --> E4I4
+        E4I3 --> E4I4
+    end
+
+    subgraph Epic 5 – Documentation
+        E5I1[M1_E5_I1: Getting Started]
+        E5I2[M1_E5_I2: Architecture Docs]
+        E5I3[M1_E5_I3: API Reference]
+        E5I4[M1_E5_I4: Examples]
+
+        E5I1 --> E5I2
+        E5I2 --> E5I3
+        E5I1 --> E5I4
+    end
 ```
 
-## Epic 1: Native Agent Injection (7 iterations)
+## Epic 1: Native Agent Injection (10 iterations)
 
 ### M1_E1_I1: Shared Memory Setup (2 days)
 - **Goal**: Create shared memory segments
@@ -128,22 +138,24 @@ graph TD
   - Atomic slot allocation
 - **Success**: Each thread gets unique lanes
 
-### M1_E1_I6: Ring Pool Swap (3 days)
-- **Goal**: Per-thread ring management
+### M1_E1_I6: Offset‑Only SHM (3 days)
+- **Goal**: Remove absolute pointers from SHM; offsets‑only with per‑call materialization
 - **Deliverables**:
-  - Ring swap protocol
-  - Submit/free queue ops
-  - Pool exhaustion handling
-- **Success**: No data loss under pressure
+  - Offsets in lane layouts and ring descriptors
+  - Raw header helpers (read/write) for rings
+  - Controller drain via raw headers
+- **Success**: All tests pass; no perf regression post warm‑up
 
-### M1_E1_I7: Broad Coverage Hooks (3 days)
-- **Goal**: Comprehensive function instrumentation with DSO support
+### M1_E1_I7: Registry Readiness, Warm‑Up, and Fallback (3–4 days)
+- **Goal**: Make per‑thread rings the robust default with readiness + heartbeat and warm‑up/fallback.
 - **Deliverables**:
-  - Main binary hook installation
-  - DSO on-arrival hooking (dlopen/dlclose interceptors)
-  - Default exclude list (objc_msgSend, malloc, etc.)
-  - CLI --exclude flag support
-- **Success**: Full coverage with < 10% overhead
+  - ControlBlock fields: registry_ready, drain_heartbeat_ns, registry_epoch/version, registry_mode
+  - Agent state machine: global_only → dual_write → per_thread_only (+ stall fallback & recovery)
+  - Controller readiness/heartbeat + mode orchestration; global drain maintained during rollout
+  - Observability: counters + lightweight logs
+- **Success**: Zero startup loss; automatic fallback on drain stall; steady per‑thread capture
+
+Note: The previous “Broad Coverage Hooks” iteration is deferred to a later slot in E1 (or moved to Hardening) to prioritize data‑plane reliability.
 
 ## Epic 2: Index Pipeline (7 iterations)
 
@@ -338,7 +350,7 @@ Each iteration follows this structure:
 
 ## Timeline Estimate
 
-- **Epic 1**: 17 days (7 iterations, I7 extended to 3 days)
+- **Epic 1**: ~24 days (10 iterations; I7 at 3–4 days)
 - **Epic 2**: 17 days (7 iterations, added I7)
 - **Epic 3**: 10 days (4 iterations)
 - **Epic 4**: 10 days (4 iterations, adjusted for QE)
@@ -353,7 +365,7 @@ The updated M1 plan now includes:
 - **ATF V4 Compliance**: Protobuf-based event format (M1_E2_I3)
 - **Selective Persistence**: Marked event detection and windowed dumps (M1_E2_I7)
 - **Query Engine**: JSON-RPC server with trace analysis APIs (M1_E4)
-- **DSO Coverage**: Comprehensive hooking with exclude lists (M1_E1_I7)
+- **DSO Coverage**: Comprehensive hooking with exclude lists (M1_E1_I10)
 
 Total iterations increased from 25 to 26 to accommodate MVP requirements.
 

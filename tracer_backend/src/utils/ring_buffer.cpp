@@ -129,4 +129,72 @@ uint64_t ring_buffer_get_overflow_count(RingBuffer* rb) {
     return __atomic_load_n(&hdr->overflow_count, __ATOMIC_ACQUIRE);
 }
 
+static inline uint32_t rb_mask_from_header(const RingBufferHeader* hdr) {
+    return hdr->capacity ? (hdr->capacity - 1u) : 0u;
+}
+
+static inline uint8_t* rb_buffer_from_header(RingBufferHeader* hdr) {
+    return reinterpret_cast<uint8_t*>(hdr) + sizeof(RingBufferHeader);
+}
+
+bool ring_buffer_write_raw(RingBufferHeader* header, size_t event_size, const void* event) {
+    if (!header || !event || header->capacity == 0) return false;
+    uint32_t mask = rb_mask_from_header(header);
+    uint32_t write_pos = __atomic_load_n(&header->write_pos, __ATOMIC_ACQUIRE);
+    uint32_t next_pos = (write_pos + 1) & mask;
+    uint32_t read_pos = __atomic_load_n(&header->read_pos, __ATOMIC_ACQUIRE);
+    if (next_pos == read_pos) {
+        __atomic_fetch_add(&header->overflow_count, (uint64_t)1, __ATOMIC_RELAXED);
+        return false;
+    }
+    uint8_t* buf = rb_buffer_from_header(header);
+    void* dest = buf + (write_pos * event_size);
+    std::memcpy(dest, event, event_size);
+    __atomic_store_n(&header->write_pos, next_pos, __ATOMIC_RELEASE);
+    return true;
+}
+
+bool ring_buffer_read_raw(RingBufferHeader* header, size_t event_size, void* event) {
+    if (!header || !event || header->capacity == 0) return false;
+    uint32_t mask = rb_mask_from_header(header);
+    uint32_t read_pos = __atomic_load_n(&header->read_pos, __ATOMIC_ACQUIRE);
+    uint32_t write_pos = __atomic_load_n(&header->write_pos, __ATOMIC_ACQUIRE);
+    if (read_pos == write_pos) return false;
+    uint8_t* buf = rb_buffer_from_header(header);
+    void* src = buf + (read_pos * event_size);
+    std::memcpy(event, src, event_size);
+    uint32_t next_pos = (read_pos + 1) & mask;
+    __atomic_store_n(&header->read_pos, next_pos, __ATOMIC_RELEASE);
+    return true;
+}
+
+size_t ring_buffer_read_batch_raw(RingBufferHeader* header, size_t event_size, void* events, size_t max_count) {
+    if (!header || !events || max_count == 0) return 0;
+    size_t n = 0;
+    uint8_t* dest = static_cast<uint8_t*>(events);
+    while (n < max_count) {
+        if (!ring_buffer_read_raw(header, event_size, dest + n * event_size)) break;
+        n++;
+    }
+    return n;
+}
+
+size_t ring_buffer_available_read_raw(RingBufferHeader* header) {
+    if (!header || header->capacity == 0) return 0;
+    uint32_t mask = rb_mask_from_header(header);
+    (void)mask; // mask unused explicitly as arithmetic wraps; keep for symmetry
+    uint32_t write_pos = __atomic_load_n(&header->write_pos, __ATOMIC_ACQUIRE);
+    uint32_t read_pos = __atomic_load_n(&header->read_pos, __ATOMIC_ACQUIRE);
+    return (write_pos - read_pos) & rb_mask_from_header(header);
+}
+
+size_t ring_buffer_available_write_raw(RingBufferHeader* header) {
+    if (!header || header->capacity == 0) return 0;
+    uint32_t mask = rb_mask_from_header(header);
+    (void)mask;
+    uint32_t write_pos = __atomic_load_n(&header->write_pos, __ATOMIC_ACQUIRE);
+    uint32_t read_pos = __atomic_load_n(&header->read_pos, __ATOMIC_ACQUIRE);
+    return (read_pos - write_pos - 1u) & rb_mask_from_header(header);
+}
+
 }

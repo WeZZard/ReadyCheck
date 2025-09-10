@@ -41,3 +41,9 @@
 - [ ] All accessors function via materialization
 - [ ] Attach + read/write works cross-process
 - [ ] Performance budgets met
+
+Execution Notes (current run):
+- SHM now contains only offsets (no `ring_ptrs`, `rb_handles`, `ring_memory_base`).
+- Accessors switched to per-call materialization; validated by unit tests.
+- Attach/read/write verified in integration (`test_thread_registry_integration`) using header-only helpers.
+- Unit perf checks remain within budgets in CI-like conditions.

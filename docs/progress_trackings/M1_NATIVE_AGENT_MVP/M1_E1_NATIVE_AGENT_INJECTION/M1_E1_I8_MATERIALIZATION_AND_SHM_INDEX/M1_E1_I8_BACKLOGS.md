@@ -1,4 +1,4 @@
-# M1_E1_I7 Backlogs: Address Materialization & SHM Index Registration
+# M1_E1_I8 Backlogs: Address Materialization & SHM Index Registration
 
 ## Sprint Overview
 Duration: 1.5 days

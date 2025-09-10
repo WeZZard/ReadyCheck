@@ -43,6 +43,15 @@ RingBufferHeader* ring_buffer_get_header(RingBuffer* rb);
 // Metrics accessors
 uint64_t ring_buffer_get_overflow_count(RingBuffer* rb);
 
+// Raw, header-only helpers (no handle) for offsets-only SHM materialization
+// These operate directly on RingBufferHeader and adjacent payload buffer.
+// Event size must match the ring's event type size.
+bool ring_buffer_write_raw(RingBufferHeader* header, size_t event_size, const void* event);
+bool ring_buffer_read_raw(RingBufferHeader* header, size_t event_size, void* event);
+size_t ring_buffer_read_batch_raw(RingBufferHeader* header, size_t event_size, void* events, size_t max_count);
+size_t ring_buffer_available_read_raw(RingBufferHeader* header);
+size_t ring_buffer_available_write_raw(RingBufferHeader* header);
+
 #ifdef __cplusplus
 }
 #endif

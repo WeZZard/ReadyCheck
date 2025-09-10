@@ -73,11 +73,12 @@ TEST_F(IntegrationTest, controller__spawn_and_attach__then_hooks_installed) {
     ASSERT_EQ(result, 0);
     printf("  ✓ Resumed process\n");
     
-    // Let it run for a bit
-    sleep(3);
-    
-    // Check statistics
+    // Wait for drain thread; poll up to ~6s
     TracerStats stats = frida_controller_get_stats(controller);
+    for (int i = 0; i < 60 && stats.events_captured == 0ull; ++i) {
+        usleep(100 * 1000);
+        stats = frida_controller_get_stats(controller);
+    }
     printf("  Events captured: %llu\n", stats.events_captured);
     ASSERT_GT(stats.events_captured, 0ull);
     
