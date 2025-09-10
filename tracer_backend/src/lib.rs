@@ -210,26 +210,12 @@ unsafe impl Sync for TracerController {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::process::Command;
-    use std::env;
     use serial_test::serial;
-    use std::process::Stdio;
-    
+    // Keep only a lightweight sanity test here; all GoogleTests run under
+    // `tracer_backend/tests/cpp_tests.rs` to avoid duplicate execution.
     #[test]
     fn test_controller_creation() {
-        // Note: This test creates shared memory segments with fixed names
-        // that can conflict when tests run in parallel
-        let controller = TracerController::new("./test_output");
-        
-        // The controller might fail if shared memory already exists from another test
-        // This is expected behavior in parallel test execution
-        if controller.is_err() {
-            println!("Controller creation failed - likely due to shared memory conflict in parallel tests");
-            // Don't fail the test for this known issue
-            return;
-        }
-        
-        assert!(controller.is_ok());
+        let _ = TracerController::new("./test_output");
     }
     
     // Helper function to run C/C++ tests with timeout and better error handling
@@ -456,62 +442,5 @@ mod tests {
         Ok(())
     }
     
-    // Google Test integration
-    #[test]
-    fn test_ring_buffer() {
-        run_c_test("test_ring_buffer").expect("Ring buffer test failed");
-    }
-    
-    #[test]
-    fn test_ring_buffer_attach() {
-        run_c_test("test_ring_buffer_attach").expect("Ring buffer attach test failed");
-    }
-    
-    #[test]
-    fn test_shared_memory() {
-        run_c_test("test_shared_memory").expect("Shared memory test failed");
-    }
-    
-    #[test]
-    fn test_spawn_method() {
-        run_c_test("test_spawn_method").expect("Spawn method test failed");
-    }
-    
-    #[test]
-    #[serial]
-    fn test_controller_full_lifecycle() {
-        run_c_test("test_controller_full_lifecycle").expect("Controller full lifecycle test failed");
-    }
-    
-    #[test]
-    #[serial]
-    fn test_integration() {
-        run_c_test("test_integration").expect("Integration test failed");
-    }
-    
-    #[test]
-    #[serial]
-    fn test_agent_loader() {
-        run_c_test("test_agent_loader").expect("Agent loader test failed");
-    }
-
-    #[test]
-    #[serial]
-    fn test_baseline_hooks() {
-        run_c_test("test_baseline_hooks").expect("Baseline hooks test failed");
-    }
-
-    #[test]
-    #[serial]
-    fn test_thread_registry() {
-        run_c_test("test_thread_registry").expect("Thread registry test failed");
-    }
-    
-    // Removed: test_thread_registry_cpp (no corresponding CMake target is built)
-
-    #[test]
-    #[serial]
-    fn test_thread_registry_integration() {
-        run_c_test("test_thread_registry_integration").expect("Thread registry integration test failed");
-    }
+    // Intentionally not running GoogleTests here
 }
