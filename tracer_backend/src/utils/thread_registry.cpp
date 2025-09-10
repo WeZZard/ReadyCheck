@@ -85,10 +85,11 @@ ThreadLaneSet* thread_registry_get_thread_lanes(ThreadRegistry* registry, uintpt
     auto* cpp_registry = reinterpret_cast<ada::internal::ThreadRegistry*>(registry);
     
     // Search for existing registration
+    auto* lanes_base = reinterpret_cast<ada::internal::ThreadLaneSet*>(reinterpret_cast<uint8_t*>(cpp_registry) + cpp_registry->lanes_off);
     for (uint32_t i = 0; i < cpp_registry->thread_count.load(); ++i) {
-        if (cpp_registry->thread_lanes[i].thread_id == thread_id && 
-            cpp_registry->thread_lanes[i].active.load()) {
-            return reinterpret_cast<ThreadLaneSet*>(&cpp_registry->thread_lanes[i]);
+        if (lanes_base[i].thread_id == thread_id && 
+            lanes_base[i].active.load()) {
+            return reinterpret_cast<ThreadLaneSet*>(&lanes_base[i]);
         }
     }
     return nullptr;
@@ -151,9 +152,10 @@ bool thread_registry_unregister_by_id(ThreadRegistry* registry, uintptr_t thread
     auto* cpp_registry = reinterpret_cast<ada::internal::ThreadRegistry*>(registry);
     
     // Find and deactivate thread
+    auto* lanes_base = reinterpret_cast<ada::internal::ThreadLaneSet*>(reinterpret_cast<uint8_t*>(cpp_registry) + cpp_registry->lanes_off);
     for (uint32_t i = 0; i < cpp_registry->thread_count.load(); ++i) {
-        if (cpp_registry->thread_lanes[i].thread_id == thread_id) {
-            bool was_active = cpp_registry->thread_lanes[i].active.exchange(false);
+        if (lanes_base[i].thread_id == thread_id) {
+            bool was_active = lanes_base[i].active.exchange(false);
             if (was_active) {
                 // Clear active_mask bit with CAS
                 uint64_t bit = 1ull << i;
@@ -177,8 +179,9 @@ uint32_t thread_registry_get_active_count(ThreadRegistry* registry) {
     auto* cpp_registry = reinterpret_cast<ada::internal::ThreadRegistry*>(registry);
     
     uint32_t count = 0;
+    auto* lanes_base = reinterpret_cast<ada::internal::ThreadLaneSet*>(reinterpret_cast<uint8_t*>(cpp_registry) + cpp_registry->lanes_off);
     for (uint32_t i = 0; i < cpp_registry->thread_count.load(); ++i) {
-        if (cpp_registry->thread_lanes[i].active.load()) {
+        if (lanes_base[i].active.load()) {
             count++;
         }
     }
@@ -190,9 +193,10 @@ ThreadLaneSet* thread_registry_get_thread_at(ThreadRegistry* registry, uint32_t 
     if (!registry || index >= cpp_registry->get_capacity()) return nullptr;
     
     if (index >= cpp_registry->thread_count.load()) return nullptr;
-    if (!cpp_registry->thread_lanes[index].active.load()) return nullptr;
+    auto* lanes_base = reinterpret_cast<ada::internal::ThreadLaneSet*>(reinterpret_cast<uint8_t*>(cpp_registry) + cpp_registry->lanes_off);
+    if (!lanes_base[index].active.load()) return nullptr;
     
-    return reinterpret_cast<ThreadLaneSet*>(&cpp_registry->thread_lanes[index]);
+    return reinterpret_cast<ThreadLaneSet*>(&lanes_base[index]);
 }
 
 void thread_registry_stop_accepting(ThreadRegistry* registry) {

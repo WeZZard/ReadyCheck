@@ -209,8 +209,8 @@ public:
     // Keep small, enough for base + a few overflow pools
     SegmentInfo segments[8]{};
     
-    // Thread lane sets - dynamically placed in shared memory
-    ThreadLaneSet* thread_lanes{nullptr};
+    // Thread lane sets offset from registry base (SHM-portable)
+    uint64_t lanes_off{0};
     
     // Factory method for creating with proper memory layout
     static ThreadRegistry* create(void* memory, size_t size, uint32_t capacity) {
@@ -234,7 +234,7 @@ public:
         registry->magic = 0x41544152; // 'ATAR' (ADA Thread ARchive marker)
         registry->version = 1;
         registry->capacity_ = capacity;
-        registry->thread_lanes = reinterpret_cast<ThreadLaneSet*>(base_ptr + lanes_off);
+        registry->lanes_off = (uint64_t)lanes_off;
         
         // Calculate where ring buffer memory starts (after all structures)
         uint8_t* ring_memory_start = base_ptr + ring_off;
@@ -249,8 +249,9 @@ public:
         
         // Initialize each thread slot (lane layouts will be allocated lazily at registration)
         for (uint32_t i = 0; i < capacity; ++i) {
+            auto* thread_lanes = reinterpret_cast<ThreadLaneSet*>(base_ptr + registry->lanes_off);
             // Don't call initialize yet - just set slot index
-            auto* lane_set = &registry->thread_lanes[i];
+            auto* lane_set = &thread_lanes[i];
             // Zero-initialize the lane set storage
             std::memset(lane_set, 0, sizeof(ThreadLaneSet));
             lane_set->slot_index = i;
@@ -270,8 +271,9 @@ public:
         }
         
         // Try to find existing registration (scan active slots)
+        auto* thread_lanes = reinterpret_cast<ThreadLaneSet*>(reinterpret_cast<uint8_t*>(this) + lanes_off);
         for (uint32_t i = 0; i < capacity_; ++i) {
-            if (thread_lanes[i].thread_id == thread_id && 
+            if (thread_lanes[i].thread_id == thread_id &&
                 thread_lanes[i].active.load()) {
                 if (needs_log_thread_registry_registry) printf("DEBUG: Thread %lx already registered at slot %u\n", thread_id, i);
                 return &thread_lanes[i];  // Already registered
@@ -417,6 +419,7 @@ public:
                    s.name);
         }
         
+        auto* thread_lanes = reinterpret_cast<const ThreadLaneSet*>(reinterpret_cast<const uint8_t*>(this) + lanes_off);
         for (uint32_t i = 0; i < thread_count.load(); ++i) {
             if (thread_lanes[i].active.load()) {
                 thread_lanes[i].debug_print();
@@ -439,6 +442,7 @@ public:
         }
         
         // Check thread lanes alignment
+        auto* thread_lanes = reinterpret_cast<const ThreadLaneSet*>(reinterpret_cast<const uint8_t*>(this) + lanes_off);
         for (uint32_t i = 0; i < capacity_; ++i) {
             auto addr = reinterpret_cast<uintptr_t>(&thread_lanes[i]);
             if (addr % CACHE_LINE_SIZE != 0) {

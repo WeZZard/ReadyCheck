@@ -319,9 +319,10 @@ TEST_F(ThreadRegistryTest, memory_ordering__registration__then_visible_to_drain)
         
         // Thread should be visible in registry
         bool found = false;
+        auto* lanes_base = reinterpret_cast<ada::internal::ThreadLaneSet*>(reinterpret_cast<uint8_t*>(registry) + registry->lanes_off);
         for (uint32_t i = 0; i < registry->thread_count.load(); i++) {
-            if (registry->thread_lanes[i].thread_id == 9999 && 
-                registry->thread_lanes[i].active.load()) {
+            if (lanes_base[i].thread_id == 9999 && 
+                lanes_base[i].active.load()) {
                 found = true;
                 break;
             }
@@ -519,8 +520,9 @@ TEST_F(ThreadRegistryTest, thread_registry__alignment_structures__then_cache_ali
     // Registry alignment
     EXPECT_EQ(reinterpret_cast<uintptr_t>(registry) % CACHE_LINE_SIZE, 0u);
     // Thread lane set alignment
+    auto* lanes_base = reinterpret_cast<ada::internal::ThreadLaneSet*>(reinterpret_cast<uint8_t*>(registry) + registry->lanes_off);
     for (uint32_t i = 0; i < registry->get_capacity(); i++) {
-        auto addr = reinterpret_cast<uintptr_t>(&registry->thread_lanes[i]);
+        auto addr = reinterpret_cast<uintptr_t>(&lanes_base[i]);
         EXPECT_EQ(addr % CACHE_LINE_SIZE, 0u);
     }
     // Queue alignment
