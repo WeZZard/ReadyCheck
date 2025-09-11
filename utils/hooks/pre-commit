@@ -31,19 +31,21 @@ if [[ -n "$STAGED_FILES" ]]; then
 fi
 
 # Check if integration quality script exists
-if [[ ! -f "${UTILS_DIR}/metrics/integration_quality.sh" ]]; then
+QUALITY_SCRIPT="${UTILS_DIR}/metrics/integration_quality.sh"
+if [[ ! -f "$QUALITY_SCRIPT" ]]; then
     echo -e "${RED}[ERROR]${NC} integration_quality.sh not found!"
     echo "Please ensure scripts are properly installed."
     exit 1
 fi
 
 # Make script executable
-chmod +x "${UTILS_DIR}/metrics/integration_quality.sh"
+chmod +x "$QUALITY_SCRIPT"
 
 # Run incremental quality check for staged files
 echo -e "${BLUE}[PRE-COMMIT]${NC} Checking incremental coverage for staged changes..."
 
-if ! "${UTILS_DIR}/metrics/integration_quality.sh" incremental; then
+# Execute the script (it has #!/bin/bash shebang)
+if ! "$QUALITY_SCRIPT" incremental; then
     exit 1
 fi
 
