@@ -200,11 +200,10 @@ has_source_changes() {
     # Filter for actual source code files (not tests, not config, not docs)
     local code_files=$(echo "$changed_files" | grep -E '\.(rs|c|cpp|cc|cxx|h|hpp|hxx|py)$' || true)
     
-    # Exclude test files and utility scripts
+    # Exclude test files but NOT utility directories (let coverage system handle what's coverable)
     local source_files=$(echo "$code_files" | \
         grep -v -E '(^tests?/|/tests?/|_test\.|\.test\.|test_.*\.rs$|.*_test\.py$|/fixtures?/|/bench/|/benches/|build\.rs$)' | \
-        grep -v -E '(^utils/|^tools/|^scripts/|^\.github/)' | \
-        grep -E '(^tracer/|^tracer_backend/|^query_engine/|^mcp_server/|^src/|^include/|^lib/)' || true)
+        grep -v -E '(^\.github/)' || true)
     
     if [[ -z "$source_files" ]]; then
         return 1
