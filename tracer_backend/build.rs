@@ -44,17 +44,17 @@ fn main() {
     
     // Add coverage flags if enabled
     if coverage_enabled {
-        println!("cargo:warning=Coverage instrumentation enabled for C/C++ code");
+        println!("cargo:info=Coverage instrumentation enabled for C/C++ code");
         cmake_config.define("ENABLE_COVERAGE", "ON");
         // Don't set LLVM_PROFILE_FILE here - it should be set at runtime when tests execute
     }
     // Opt-in sanitizers via env toggles
     if env::var("ADA_ENABLE_THREAD_SANITIZER").is_ok() {
-        println!("cargo:warning=ThreadSanitizer enabled for C/C++ code");
+        println!("cargo:info=ThreadSanitizer enabled for C/C++ code");
         cmake_config.define("ENABLE_THREAD_SANITIZER", "ON");
     }
     if env::var("ADA_ENABLE_ADDRESS_SANITIZER").is_ok() {
-        println!("cargo:warning=AddressSanitizer enabled for C/C++ code");
+        println!("cargo:info=AddressSanitizer enabled for C/C++ code");
         cmake_config.define("ENABLE_ADDRESS_SANITIZER", "ON");
     }
     
@@ -65,7 +65,7 @@ fn main() {
     // Report the location of compile_commands.json for IDE consumption
     let compile_commands_path = dst.join("build").join("compile_commands.json");
     if compile_commands_path.exists() {
-        println!("cargo:warning=compile_commands.json generated at: {}", compile_commands_path.display());
+        println!("cargo:info=compile_commands.json generated at: {}", compile_commands_path.display());
         
         // Also create a symlink in a predictable location for easier IDE configuration
         let target_dir = env::var("CARGO_TARGET_DIR")
@@ -91,7 +91,7 @@ fn main() {
             if let Err(e) = std::os::unix::fs::symlink(&compile_commands_path, &link_path) {
                 println!("cargo:warning=Failed to create compile_commands.json symlink: {}", e);
             } else {
-                println!("cargo:warning=compile_commands.json symlinked to: {}", link_path.display());
+                println!("cargo:info=compile_commands.json symlinked to: {}", link_path.display());
             }
         }
         
@@ -100,7 +100,7 @@ fn main() {
             if let Err(e) = std::os::windows::fs::symlink_file(&compile_commands_path, &link_path) {
                 println!("cargo:warning=Failed to create compile_commands.json symlink: {}", e);
             } else {
-                println!("cargo:warning=compile_commands.json symlinked to: {}", link_path.display());
+                println!("cargo:info=compile_commands.json symlinked to: {}", link_path.display());
             }
         }
     }
@@ -204,7 +204,7 @@ fn main() {
             if let Err(e) = std::fs::copy(&src, &dst_file) {
                 println!("cargo:warning=Failed to copy {}: {}", src_path, e);
             } else {
-                println!("cargo:warning=Copied {} to {}", src_path, dst_file.display());
+                println!("cargo:info=Copied {} to {}", src_path, dst_file.display());
             }
         }
     }
@@ -229,7 +229,7 @@ fn main() {
                     if let Err(e) = std::fs::copy(&path, &dst_file) {
                         println!("cargo:warning=Failed to copy library: {}", e);
                     } else {
-                        println!("cargo:warning=Copied {} to {}", path.display(), dst_file.display());
+                        println!("cargo:info=Copied {} to {}", path.display(), dst_file.display());
                     }
                 }
             }
@@ -237,11 +237,11 @@ fn main() {
     }
     
     // Report the predictable directory location
-    println!("cargo:warning=");
-    println!("cargo:warning=All binaries and libraries copied to: {}", predictable_dir.display());
-    println!("cargo:warning=  Binaries:  {}/bin/", predictable_dir.display());
-    println!("cargo:warning=  Tests:     {}/test/", predictable_dir.display());
-    println!("cargo:warning=  Libraries: {}/lib/", predictable_dir.display());
+    println!("cargo:info=");
+    println!("cargo:info=All binaries and libraries copied to: {}", predictable_dir.display());
+    println!("cargo:info=  Binaries:  {}/bin/", predictable_dir.display());
+    println!("cargo:info=  Tests:     {}/test/", predictable_dir.display());
+    println!("cargo:info=  Libraries: {}/lib/", predictable_dir.display());
 
     // Generate Rust test wrappers for discovered C++ gtests
     if let Err(e) = generate_gtest_wrappers(&out_dir, &predictable_dir, &dst) {
@@ -422,8 +422,23 @@ fn generate_gtest_wrappers(out_dir: &Path, predictable_dir: &Path, dst: &Path) -
     } else {
         // Always write a placeholder file so include! does not fail
         let mut f = fs::File::create(&out_file)?;
-        f.write_all(b"// No generated C++ gtest wrappers\n")?;
-        println!("cargo:warning=No C++ gtest wrappers generated (placeholder at {})", out_file.display());
+        f.write_all(b"// No generated C++ gtest wrappers - check cpp_tests_status test for details\n")?;
+
+        // Provide detailed warning to help developers understand the situation
+        println!("cargo:warning=═══════════════════════════════════════════════════════════");
+        println!("cargo:warning=⚠️  No C++ test wrappers generated!");
+        println!("cargo:warning=");
+        println!("cargo:warning=This means 'cargo test' won't run C++ tests automatically.");
+        println!("cargo:warning=");
+        println!("cargo:warning=Possible causes:");
+        println!("cargo:warning=  • No test binaries found in predictable test directory");
+        println!("cargo:warning=  • Test binaries couldn't be executed (cross-compilation?)");
+        println!("cargo:warning=  • Tests aren't using Google Test framework");
+        println!("cargo:warning=");
+        println!("cargo:warning=You can still run tests directly or via IDE test runners.");
+        println!("cargo:warning=═══════════════════════════════════════════════════════════");
+
+        // Don't set ADA_CPP_TESTS_GENERATED so the status test can show its warning
     }
 
     Ok(())

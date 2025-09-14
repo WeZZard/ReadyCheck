@@ -518,53 +518,62 @@ fn collect_rust_coverage(workspace: &Path, coverage_dir: &Path, output_lcov: &Pa
 /// - Consistent output format (LCOV) for all coverage
 fn collect_cpp_coverage(workspace: &Path, coverage_dir: &Path, output_lcov: &Path) -> Result<()> {
     println!("Collecting C/C++ coverage...");
-    
+
     // First, run all C++ test binaries to generate coverage data
     println!("  Running C++ tests with coverage instrumentation...");
-    
-    // Find all C++ test binaries
-    let test_binary_patterns = vec![
-        workspace.join("target/release/tracer_backend/test"),
-        workspace.join("target/debug/tracer_backend/test"),
-        workspace.join("target/release/build/tracer_backend-*/out/build"),
-        workspace.join("target/debug/build/tracer_backend-*/out/build"),
-    ];
-    
+
+    // The build.rs script copies all test binaries to a predictable location:
+    // target/{profile}/tracer_backend/test/
+    // This avoids the complexity of searching through hash-based build directories
+
+    // Prefer release build if available, otherwise use debug
+    let profile = if workspace.join("target/release/tracer_backend/test").exists() {
+        "release"
+    } else {
+        "debug"
+    };
+
+    let test_dir = workspace.join("target").join(profile).join("tracer_backend").join("test");
     let mut test_binaries = Vec::new();
-    for pattern in test_binary_patterns {
-        if let Ok(entries) = glob::glob(&format!("{}/**/test_*", pattern.display())) {
-            for entry in entries.flatten() {
-                if entry.is_file() && entry.to_str().map_or(false, |s| {
-                    s.contains("test_") && 
-                    !s.ends_with(".o") && 
-                    !s.ends_with(".d") && 
-                    !s.ends_with(".cmake") &&
-                    !s.contains("[")  // Exclude CMake generated files with brackets
-                }) {
-                    // Check if it's executable
-                    if let Ok(metadata) = entry.metadata() {
-                        #[cfg(unix)]
-                        {
-                            use std::os::unix::fs::PermissionsExt;
-                            if metadata.permissions().mode() & 0o111 != 0 {
-                                test_binaries.push(entry);
+
+    if test_dir.exists() {
+        println!("    Looking for tests in: {}", test_dir.display());
+
+        // Find all test executables in the predictable location
+        if let Ok(entries) = fs::read_dir(&test_dir) {
+            for entry in entries.filter_map(|e| e.ok()) {
+                let path = entry.path();
+                if path.is_file() {
+                    if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
+                        if file_name.starts_with("test_") {
+                            // Check if it's executable
+                            if let Ok(metadata) = path.metadata() {
+                                #[cfg(unix)]
+                                {
+                                    use std::os::unix::fs::PermissionsExt;
+                                    if metadata.permissions().mode() & 0o111 != 0 {
+                                        test_binaries.push(path);
+                                    }
+                                }
+                                #[cfg(not(unix))]
+                                {
+                                    test_binaries.push(path);
+                                }
                             }
-                        }
-                        #[cfg(not(unix))]
-                        {
-                            test_binaries.push(entry);
                         }
                     }
                 }
             }
         }
+    } else {
+        println!("    Test directory not found: {}", test_dir.display());
     }
-    
+
     if test_binaries.is_empty() {
         println!("  No C++ test binaries found. Make sure to build with --features coverage");
         return Ok(());
     }
-    
+
     println!("  Found {} C++ test binaries", test_binaries.len());
     
     // Run each test binary with unique profraw output
