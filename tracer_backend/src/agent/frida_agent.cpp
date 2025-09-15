@@ -6,10 +6,14 @@
 #include <csignal>
 #include <memory>
 #include <mutex>
+#include <unordered_map>
+#include <vector>
+#include <string>
 
 // System headers
 #include <unistd.h>
 #include <pthread.h>
+#include <dlfcn.h>
 
 #ifdef __APPLE__
 #include <mach/mach_time.h>
@@ -30,6 +34,10 @@ extern "C" {
 
 // Include C++ implementation headers
 #include "../utils/ring_buffer_private.h"
+#include <tracer_backend/agent/exclude_list.h>
+#include <tracer_backend/agent/hook_registry.h>
+#include <tracer_backend/agent/comprehensive_hooks.h>
+#include <tracer_backend/agent/dso_management.h>
 
 // Forward declare the C callbacks
 extern "C" {
@@ -58,6 +66,7 @@ static bool g_agent_verbose = [](){
 // For initialization parsing
 static uint32_t g_host_pid = UINT32_MAX;
 static uint32_t g_session_id = UINT32_MAX;
+static char g_exclude_csv[256] = {0};
 
 // Signal handling for safe stack capture
 static volatile sig_atomic_t g_segfault_occurred = 0;
@@ -184,7 +193,25 @@ bool AgentContext::initialize(uint32_t host_pid, uint32_t session_id) {
     // Get Frida interceptor
     interceptor_ = gum_interceptor_obtain();
     g_debug("[Agent] Got interceptor: %p\n", interceptor_);
-    
+
+    // Build exclude list (defaults + custom)
+    // Note: exclude list is used by hook installation to skip hot paths
+    // Read from init payload if provided or ADA_EXCLUDE env
+    const char* env_ex = getenv("ADA_EXCLUDE");
+    AdaExcludeList* xs = ada_exclude_create(128);
+    if (xs) {
+        ada_exclude_add_defaults(xs);
+        if (g_exclude_csv[0] != '\0') {
+            ada_exclude_add_from_csv(xs, g_exclude_csv);
+        }
+        if (env_ex && *env_ex) {
+            ada_exclude_add_from_csv(xs, env_ex);
+        }
+        // Stash as a listener-specific user_data via HookData when needed
+        // (We keep xs alive for process lifetime by leaking it intentionally
+        //  as agent teardown is process exit.)
+    }
+
     return true;
 }
 
@@ -275,7 +302,7 @@ void AgentContext::hook_function(const char* name) {
     num_hooks_attempted_++;
     
     // Generate stable function ID from name
-    uint32_t function_id = hash_string(name);
+    uint64_t function_id = static_cast<uint64_t>(hash_string(name));
     
     // Find function address
     GumModule* main_module = gum_process_get_main_module();
@@ -289,59 +316,232 @@ void AgentContext::hook_function(const char* name) {
         
         // Create hook data
         auto hook = std::make_unique<HookData>(this, function_id, name, func_addr);
-        
+        hooks_.push_back(std::move(hook));
+        HookData* hook_ptr = hooks_.back().get();  // Get pointer after moving into vector
+
         // Create listener with C callbacks (defined in extern "C" block below)
         GumInvocationListener* listener = gum_make_call_listener(
-            on_enter_callback, 
+            on_enter_callback,
             on_leave_callback,
-            hook.get(),
+            hook_ptr,
             nullptr  // No destructor needed, we manage lifetime
         );
-        
-        gum_interceptor_attach(interceptor_, 
+        hook_ptr->listener = listener;  // Store listener to keep it alive
+
+        gum_interceptor_attach(interceptor_,
                               GSIZE_TO_POINTER(func_addr),
-                              listener, 
-                              hook.get(), 
+                              listener,
+                              nullptr,
                               GUM_ATTACH_FLAGS_NONE);
-        
-        hooks_.push_back(std::move(hook));
+
         num_hooks_successful_++;
         
-        if (ada::internal::g_agent_verbose) g_debug("[Agent] Hooked: %s at 0x%llx (id=%u)\n", name,
-                static_cast<unsigned long long>(func_addr), function_id);
+        if (ada::internal::g_agent_verbose) g_debug("[Agent] Hooked: %s at 0x%llx (id=%llu)\n", name,
+                static_cast<unsigned long long>(func_addr),
+                static_cast<unsigned long long>(function_id));
     } else {
         if (ada::internal::g_agent_verbose) g_debug("[Agent] Failed to find: %s\n", name);
     }
 }
 
-void AgentContext::install_hooks() {
-    // Begin transaction for batch hooking
-    gum_interceptor_begin_transaction(interceptor_);
-    if (ada::internal::g_agent_verbose) g_debug("[Agent] Beginning hook installation...\n");
-    
-    // Define functions to hook
-    const char* functions_to_hook[] = {
-        // test_cli functions
-        "fibonacci", "process_file", "calculate_pi", "recursive_function",
-        // test_runloop functions
-        "simulate_network", "monitor_file", "dispatch_work", "signal_handler",
-        "timer_callback", 
-        nullptr
-    };
-    
-    // Hook each function
-    for (const char** fname = functions_to_hook; *fname != nullptr; fname++) {
-        hook_function(*fname);
+// Helper: export collection container (only names; resolve addresses precisely later)
+struct ExportEntry { std::string name; };
+
+static gboolean collect_exports_cb(const GumExportDetails* details, gpointer user_data) {
+    auto* vec = reinterpret_cast<std::vector<ExportEntry>*>(user_data);
+    if (details != nullptr && details->name != nullptr && details->name[0] != '\0') {
+        vec->push_back(ExportEntry{details->name});
     }
-    
+    return TRUE;
+}
+
+// Resolve an export's actual runtime address with platform quirks handled
+static GumAddress resolve_export_address(GumModule* mod, const std::string& sym) {
+    if (mod == nullptr || sym.empty()) return 0;
+
+    // Try exact export name first
+    GumAddress addr = gum_module_find_export_by_name(mod, sym.c_str());
+    if (addr != 0) return addr;
+
+#ifdef __APPLE__
+    // On macOS, C symbols are typically prefixed with an underscore in Mach-O exports.
+    // Try toggling the underscore prefix if the initial lookup failed.
+    if (!sym.empty() && sym[0] != '_') {
+        std::string with_us = "_" + sym;
+        addr = gum_module_find_export_by_name(mod, with_us.c_str());
+        if (addr != 0) return addr;
+    } else if (sym.size() > 1 && sym[0] == '_') {
+        std::string without_us = sym.substr(1);
+        addr = gum_module_find_export_by_name(mod, without_us.c_str());
+        if (addr != 0) return addr;
+    }
+#endif
+
+    // Fallback to symbol lookup which may resolve the implementation instead of a stub
+    addr = gum_module_find_symbol_by_name(mod, sym.c_str());
+    if (addr != 0) return addr;
+
+#ifdef __APPLE__
+    if (!sym.empty() && sym[0] != '_') {
+        std::string with_us = "_" + sym;
+        addr = gum_module_find_symbol_by_name(mod, with_us.c_str());
+        if (addr != 0) return addr;
+    } else if (sym.size() > 1 && sym[0] == '_') {
+        std::string without_us = sym.substr(1);
+        addr = gum_module_find_symbol_by_name(mod, without_us.c_str());
+        if (addr != 0) return addr;
+    }
+#endif
+
+    return 0;
+}
+
+void AgentContext::install_hooks() {
+    g_debug("[Agent] install_hooks() entered\n");
+    gum_interceptor_begin_transaction(interceptor_);
+    g_debug("[Agent] Beginning comprehensive hook installation...\n");
+
+    // Build exclude list (defaults + overrides)
+    g_debug("[Agent] Creating exclude list...\n");
+    AdaExcludeList* xs = ada_exclude_create(256);
+    if (xs) {
+        ada_exclude_add_defaults(xs);
+        if (g_exclude_csv[0] != '\0') ada_exclude_add_from_csv(xs, g_exclude_csv);
+        const char* env_ex = getenv("ADA_EXCLUDE");
+        if (env_ex && *env_ex) ada_exclude_add_from_csv(xs, env_ex);
+    }
+
+    // Registry assigns per-module stable IDs
+    g_debug("[Agent] Creating hook registry...\n");
+    ada::agent::HookRegistry registry;
+
+    // Enumerate main module first
+    g_debug("[Agent] Getting main module...\n");
+    GumModule* main_mod = gum_process_get_main_module();
+    std::vector<ExportEntry> main_exports_entries;
+    if (main_mod) {
+        gum_module_enumerate_exports(main_mod, collect_exports_cb, &main_exports_entries);
+    }
+    std::vector<std::string> main_export_names;
+    main_export_names.reserve(main_exports_entries.size());
+    for (auto& e : main_exports_entries) main_export_names.push_back(e.name);
+
+    // Plan main hooks
+    auto main_plan = ada::agent::plan_module_hooks("<main>", main_export_names, xs, registry);
+    // Build precise address lookup for main module using symbol/export resolution
+    std::unordered_map<std::string, GumAddress> main_addr;
+    for (auto& e : main_exports_entries) {
+        GumAddress a = resolve_export_address(main_mod, e.name);
+        if (ada::internal::g_agent_verbose) {
+            g_debug("[Agent] Resolved main export %s -> 0x%llx\n", e.name.c_str(), (unsigned long long)a);
+        }
+        main_addr.emplace(e.name, a);
+    }
+
+    // Hook planned symbols in main module
+    g_debug("[Agent] Main module has %zu planned hooks\n", main_plan.size());
+    for (const auto& entry : main_plan) {
+        const auto it = main_addr.find(entry.symbol);
+        num_hooks_attempted_++;
+        if (it != main_addr.end() && it->second != 0) {
+            g_debug("[Agent] Hooking main symbol: %s at 0x%lx\n", entry.symbol.c_str(), (unsigned long)it->second);
+
+            // Verify the address looks valid
+            g_debug("[Agent] Creating hook for %s, function_id=%llu\n", entry.symbol.c_str(), (unsigned long long)entry.function_id);
+
+            auto hook = std::make_unique<HookData>(this, entry.function_id, entry.symbol, it->second);
+            hooks_.push_back(std::move(hook));
+            HookData* hook_ptr = hooks_.back().get();  // Get pointer after moving into vector
+
+            g_debug("[Agent] Creating listener with callbacks: on_enter=%p, on_leave=%p, data=%p\n",
+                    (void*)on_enter_callback, (void*)on_leave_callback, (void*)hook_ptr);
+
+            GumInvocationListener* listener = gum_make_call_listener(on_enter_callback, on_leave_callback, hook_ptr, nullptr);
+
+            g_debug("[Agent] Created listener: %p\n", listener);
+
+            hook_ptr->listener = listener;  // Store listener to keep it alive
+
+            GumAttachReturn ret = gum_interceptor_attach(interceptor_, GSIZE_TO_POINTER(it->second), listener, nullptr, GUM_ATTACH_FLAGS_NONE);
+            if (ret == GUM_ATTACH_OK) {
+                g_debug("[Agent] Successfully attached hook to %s\n", entry.symbol.c_str());
+                hook_results_.emplace_back(entry.symbol, it->second, entry.function_id, true);
+                num_hooks_successful_++;
+            } else {
+                g_debug("[Agent] Failed to attach hook to %s (error: %d)\n", entry.symbol.c_str(), ret);
+                hook_results_.emplace_back(entry.symbol, it->second, entry.function_id, false);
+            }
+        } else {
+            hook_results_.emplace_back(entry.symbol, 0, entry.function_id, false);
+        }
+    }
+
+    // Enumerate all modules and hook DSOs (excluding main module)
+    GumModuleMap* map = gum_module_map_new();
+    if (map) {
+        GPtrArray* mods = gum_module_map_get_values(map);
+        for (guint i = 0; mods && i < mods->len; i++) {
+            GumModule* mod = static_cast<GumModule*>(g_ptr_array_index(mods, i));
+            if (mod == main_mod) continue;
+            const char* path = gum_module_get_path(mod);
+            if (!path || path[0] == '\0') continue;
+            std::vector<ExportEntry> exps;
+            gum_module_enumerate_exports(mod, collect_exports_cb, &exps);
+            if (exps.empty()) continue;
+            std::vector<std::string> names; names.reserve(exps.size());
+            std::unordered_map<std::string, GumAddress> addr;
+            for (auto& e : exps) {
+                names.push_back(e.name);
+                GumAddress a = resolve_export_address(mod, e.name);
+                if (ada::internal::g_agent_verbose) {
+                    g_debug("[Agent] Resolved DSO export %s -> 0x%llx\n", e.name.c_str(), (unsigned long long)a);
+                }
+                addr.emplace(e.name, a);
+            }
+            auto plan = ada::agent::plan_module_hooks(path, names, xs, registry);
+            for (const auto& pe : plan) {
+                num_hooks_attempted_++;
+                auto it = addr.find(pe.symbol);
+                if (it != addr.end() && it->second != 0) {
+                    auto hook = std::make_unique<HookData>(this, pe.function_id, pe.symbol, it->second);
+                    hooks_.push_back(std::move(hook));
+                    HookData* hook_ptr = hooks_.back().get();  // Get pointer after moving into vector
+                    GumInvocationListener* listener = gum_make_call_listener(on_enter_callback, on_leave_callback, hook_ptr, nullptr);
+                    hook_ptr->listener = listener;  // Store listener to keep it alive
+                    GumAttachReturn ret = gum_interceptor_attach(interceptor_, GSIZE_TO_POINTER(it->second), listener, nullptr, GUM_ATTACH_FLAGS_NONE);
+                    if (ret == GUM_ATTACH_OK) {
+                        hook_results_.emplace_back(pe.symbol, it->second, pe.function_id, true);
+                        num_hooks_successful_++;
+                    } else {
+                        g_debug("[Agent] Failed to attach DSO hook to %s (error: %d)\n", pe.symbol.c_str(), ret);
+                        hook_results_.emplace_back(pe.symbol, it->second, pe.function_id, false);
+                    }
+                } else {
+                    hook_results_.emplace_back(pe.symbol, 0, pe.function_id, false);
+                }
+            }
+        }
+        g_object_unref(map);
+    }
+
     // End transaction
     gum_interceptor_end_transaction(interceptor_);
-    
+
+    // Cleanup exclude list
+    if (xs) ada_exclude_destroy(xs);
+
     // Send hook summary
     send_hook_summary();
-    
+
     g_debug("[Agent] Initialization complete: %u/%u hooks installed\n",
             num_hooks_successful_, num_hooks_attempted_);
+
+    // CRITICAL: Signal that hooks are ready via control block
+    if (control_block_) {
+        __atomic_store_n(&control_block_->hooks_ready, 1, __ATOMIC_RELEASE);
+        g_debug("[Agent] Set hooks_ready flag in control block\n");
+    }
+
 }
 
 void AgentContext::send_hook_summary() {
@@ -352,10 +552,10 @@ void AgentContext::send_hook_summary() {
                 num_hooks_attempted_ - num_hooks_successful_);
     
     for (const auto& result : hook_results_) {
-        g_debug("[Agent]   %s: address=0x%llx, id=%u, %s\n", 
+        g_debug("[Agent]   %s: address=0x%llx, id=%llu, %s\n", 
                 result.name.c_str(),
                 static_cast<unsigned long long>(result.address), 
-                result.id,
+                static_cast<unsigned long long>(result.id),
                 result.success ? "hooked" : "failed");
     }
 }
@@ -553,6 +753,12 @@ void parse_init_payload(const char* data, int data_size,
                     strtoul(val, nullptr, looks_hex ? 16 : 10));
             }
             *out_session_id = static_cast<uint32_t>(parsed);
+        } else if (strcmp(key, "exclude") == 0) {
+            // Copy exclude CSV to global buffer
+            size_t n = strlen(val);
+            if (n >= sizeof(g_exclude_csv)) n = sizeof(g_exclude_csv) - 1;
+            memcpy(g_exclude_csv, val, n);
+            g_exclude_csv[n] = '\0';
         }
     }
 }
@@ -561,14 +767,22 @@ void parse_init_payload(const char* data, int data_size,
 // Hook Callbacks (C++ implementation)
 // ============================================================================
 
-static void capture_index_event(AgentContext* ctx, HookData* hook, 
+static void capture_index_event(AgentContext* ctx, HookData* hook,
                                ThreadLocalData* tls, EventKind kind) {
-    if (!ctx->control_block()->index_lane_enabled) {
-        g_debug("[Agent] Index lane disabled\n");
+    if (!ctx->control_block()) {
+        g_debug("[Agent] Control block is NULL!\n");
         return;
     }
-    
-    g_debug("[Agent] Capturing index event\n");
+
+    // Debug: Always log the actual value
+    g_debug("[Agent] Index lane enabled flag: %u\n", ctx->control_block()->index_lane_enabled);
+
+    if (!ctx->control_block()->index_lane_enabled) {
+        g_debug("[Agent] Index lane disabled (flag=%u)\n", ctx->control_block()->index_lane_enabled);
+        return;
+    }
+
+    g_debug("[Agent] Capturing index event for %s (kind=%d)\n", hook->function_name.c_str(), kind);
     
     IndexEvent event = {};
     event.timestamp = platform_get_timestamp();
@@ -736,11 +950,36 @@ static void capture_detail_event(AgentContext* ctx, HookData* hook,
 extern "C" {
 
 void on_enter_callback(GumInvocationContext* ic, gpointer user_data) {
+    // Immediate debug output to verify callback is reached
+    fprintf(stderr, "[HOOK] on_enter_callback FIRED!\n");
+    fflush(stderr);
+
+    // Simple test: just increment a counter
+    static std::atomic<uint64_t> s_enter_count{0};
+    uint64_t count = s_enter_count.fetch_add(1) + 1;
+    if (count == 1 || count % 100 == 0) {
+        fprintf(stderr, "[Agent] on_enter called (count=%llu)\n", (unsigned long long)count);
+        fflush(stderr);
+    }
+
     auto* hook = static_cast<HookData*>(user_data);
+    if (!hook) {
+        g_debug("[Agent] ERROR: hook is NULL in on_enter!\n");
+        return;
+    }
+
     auto* ctx = hook->context;
+    if (!ctx) {
+        g_debug("[Agent] ERROR: context is NULL in on_enter!\n");
+        return;
+    }
+
     auto* tls = get_thread_local();
-    if (!tls) return;
-    
+    if (!tls) {
+        g_debug("[Agent] ERROR: TLS is NULL in on_enter!\n");
+        return;
+    }
+
     // Enhanced reentrancy guard with metrics
     if (tls->is_in_handler()) {
         tls->record_reentrancy_attempt();
@@ -748,9 +987,9 @@ void on_enter_callback(GumInvocationContext* ic, gpointer user_data) {
         return;
     }
     tls->enter_handler();
-    
-    if (ada::internal::g_agent_verbose) g_debug("[Agent] on_enter: %s\n", hook->function_name.c_str());
-    
+
+    // g_debug("[Agent] on_enter: %s (tid=%u)\n", hook->function_name.c_str(), tls->thread_id());
+
     // Tick agent mode state machine before captures
     const uint64_t now_ns = platform_get_timestamp();
     const uint64_t hb_timeout_ns = 500000000ull; // 500 ms
@@ -758,13 +997,13 @@ void on_enter_callback(GumInvocationContext* ic, gpointer user_data) {
 
     // Increment call depth
     tls->increment_depth();
-    
+
     // Capture index event
     capture_index_event(ctx, hook, tls, EVENT_KIND_CALL);
-    
+
     // Capture detail event with full ABI registers and optional stack
     capture_detail_event(ctx, hook, tls, EVENT_KIND_CALL, ic->cpu_context);
-    
+
     tls->exit_handler();
 }
 
@@ -819,7 +1058,9 @@ __attribute__((visibility("default")))
 void agent_init(const gchar* data, gint data_size) {
     // Initialize GUM first before using any GLib functions
     gum_init_embedded();
-    
+
+    g_debug("[Agent] agent_init called! data_size=%d\n", data_size);
+
     if (ada::internal::g_agent_verbose) g_debug("[Agent] Initializing with data size: %d\n", data_size);
     
     // Parse initialization data
@@ -840,7 +1081,9 @@ void agent_init(const gchar* data, gint data_size) {
     }
     
     // Install hooks
+    g_debug("[Agent] About to install hooks...\n");
     ctx->install_hooks();
+    g_debug("[Agent] Hooks installation completed\n");
 }
 
 // Agent cleanup

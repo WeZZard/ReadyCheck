@@ -15,6 +15,19 @@ if(NOT FRIDA_GUM_LIBRARY)
     message(FATAL_ERROR "Frida Gum library not found. Run init_third_parties.sh")
 endif()
 
+# Agent utility library (no frida dependency): exclude list and helpers used by tests
+add_library(agent_utils STATIC
+    exclude_list.cpp
+    dso_management.cpp
+    hook_registry.cpp
+    comprehensive_hooks.cpp
+)
+
+target_include_directories(agent_utils
+    PUBLIC
+        ${CMAKE_SOURCE_DIR}/include
+)
+
 # Agent shared library
 add_library(frida_agent SHARED
     frida_agent.cpp
@@ -33,6 +46,7 @@ target_link_libraries(frida_agent
         ${FRIDA_GUM_LIBRARY}
         tracer_utils
         Threads::Threads
+        agent_utils
 )
 
 # Platform-specific settings

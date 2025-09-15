@@ -66,12 +66,13 @@ private:
 
 struct HookData {
     class AgentContext* context;
-    uint32_t function_id;
+    uint64_t function_id;
     std::string function_name;
     GumAddress function_address;
-    
-    HookData(AgentContext* ctx, uint32_t id, const std::string& name, GumAddress addr)
-        : context(ctx), function_id(id), function_name(name), function_address(addr) {}
+    GumInvocationListener* listener;  // Keep listener alive
+
+    HookData(AgentContext* ctx, uint64_t id, const std::string& name, GumAddress addr)
+        : context(ctx), function_id(id), function_name(name), function_address(addr), listener(nullptr) {}
 };
 
 // ============================================================================
@@ -81,10 +82,10 @@ struct HookData {
 struct HookResult {
     std::string name;
     GumAddress address;
-    uint32_t id;
+    uint64_t id;
     bool success;
     
-    HookResult(const std::string& n, GumAddress a, uint32_t i, bool s)
+    HookResult(const std::string& n, GumAddress a, uint64_t i, bool s)
         : name(n), address(a), id(i), success(s) {}
 };
 

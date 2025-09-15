@@ -24,6 +24,7 @@ void print_usage(const char* program) {
     printf("  %s attach 1234\n", program);
     printf("\nOptions:\n");
     printf("  --output <dir>   - Output directory for traces (default: ./traces)\n");
+    printf("  --exclude <csv>  - Comma/semicolon-separated list of symbols to exclude from hooks\n");
 }
 
 int main(int argc, char* argv[]) {
@@ -35,11 +36,14 @@ int main(int argc, char* argv[]) {
     const char* mode = argv[1];
     const char* target = argv[2];
     const char* output_dir = "./traces";
+    const char* exclude_csv = NULL;
     
     // Parse options
     for (int i = 3; i < argc; i++) {
         if (strcmp(argv[i], "--output") == 0 && i + 1 < argc) {
             output_dir = argv[++i];
+        } else if (strcmp(argv[i], "--exclude") == 0 && i + 1 < argc) {
+            exclude_csv = argv[++i];
         }
     }
     
@@ -49,6 +53,10 @@ int main(int argc, char* argv[]) {
     
     printf("=== ADA Tracer POC ===\n");
     printf("Output directory: %s\n", output_dir);
+    if (exclude_csv) {
+        printf("Exclude symbols: %s\n", exclude_csv);
+        setenv("ADA_EXCLUDE", exclude_csv, 1);
+    }
     
     // Create output directory
     char cmd[512];

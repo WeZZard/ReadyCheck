@@ -33,6 +33,36 @@ install(TARGETS
     RUNTIME DESTINATION bin
 )
 
+# Exclude list unit tests (no frida dependency)
+add_executable(test_exclude_list
+    test_exclude_list.cpp
+)
+target_include_directories(test_exclude_list
+    PRIVATE
+        ${CMAKE_SOURCE_DIR}/include
+        ${CMAKE_BINARY_DIR}  # For ada_paths.h
+)
+target_link_libraries(test_exclude_list
+    PRIVATE
+        test_main
+        GTest::gtest
+        GTest::gmock
+        agent_utils
+        tracer_utils
+)
+
+gtest_discover_tests(test_exclude_list
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+    DISCOVERY_MODE PRE_TEST
+    DISCOVERY_TIMEOUT 60
+    PROPERTIES LABELS "unit"
+)
+
+install(TARGETS
+    test_exclude_list
+    RUNTIME DESTINATION bin
+)
+
 # Additional agent state machine tests
 add_executable(test_agent_state_machine
     test_agent_state_machine.cpp
@@ -120,5 +150,116 @@ gtest_discover_tests(test_agent_mode_tick
 
 install(TARGETS
     test_agent_mode_tick
+    RUNTIME DESTINATION bin
+)
+
+# DSO management unit tests
+add_executable(test_dso_management
+    test_dso_management.cpp
+)
+target_include_directories(test_dso_management
+    PRIVATE
+        ${CMAKE_SOURCE_DIR}/include
+        ${CMAKE_BINARY_DIR}  # For ada_paths.h
+)
+target_link_libraries(test_dso_management
+    PRIVATE
+        test_main
+        GTest::gtest
+        GTest::gmock
+        agent_utils
+        tracer_utils
+)
+gtest_discover_tests(test_dso_management
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+    DISCOVERY_MODE PRE_TEST
+    DISCOVERY_TIMEOUT 60
+    PROPERTIES LABELS "unit"
+)
+install(TARGETS
+    test_dso_management
+    RUNTIME DESTINATION bin
+)
+
+# Hook registry unit tests
+add_executable(test_hook_registry
+    test_hook_registry.cpp
+)
+target_include_directories(test_hook_registry
+    PRIVATE
+        ${CMAKE_SOURCE_DIR}/include
+        ${CMAKE_BINARY_DIR}
+)
+target_link_libraries(test_hook_registry
+    PRIVATE
+        test_main
+        GTest::gtest
+        GTest::gmock
+        agent_utils
+        tracer_utils
+)
+gtest_discover_tests(test_hook_registry
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+    DISCOVERY_MODE PRE_TEST
+    DISCOVERY_TIMEOUT 60
+    PROPERTIES LABELS "unit"
+)
+install(TARGETS
+    test_hook_registry
+    RUNTIME DESTINATION bin
+)
+
+# Comprehensive hooks unit tests
+add_executable(test_comprehensive_hooks
+    test_comprehensive_hooks.cpp
+)
+target_include_directories(test_comprehensive_hooks
+    PRIVATE
+        ${CMAKE_SOURCE_DIR}/include
+        ${CMAKE_BINARY_DIR}
+)
+target_link_libraries(test_comprehensive_hooks
+    PRIVATE
+        test_main
+        GTest::gtest
+        GTest::gmock
+        agent_utils
+        tracer_utils
+)
+gtest_discover_tests(test_comprehensive_hooks
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+    DISCOVERY_MODE PRE_TEST
+    DISCOVERY_TIMEOUT 60
+    PROPERTIES LABELS "unit"
+)
+install(TARGETS
+    test_comprehensive_hooks
+    RUNTIME DESTINATION bin
+)
+
+# M1_E1_I10: IndexEvent layout unit test
+add_executable(test_index_event_layout
+    test_index_event_layout.cpp
+)
+target_include_directories(test_index_event_layout
+    PRIVATE
+        ${CMAKE_SOURCE_DIR}/include
+        ${CMAKE_BINARY_DIR}
+)
+target_link_libraries(test_index_event_layout
+    PRIVATE
+        test_main
+        GTest::gtest
+        GTest::gmock
+        tracer_utils
+)
+gtest_discover_tests(test_index_event_layout
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+    DISCOVERY_MODE PRE_TEST
+    DISCOVERY_TIMEOUT 60
+    PROPERTIES LABELS "unit"
+)
+install(TARGETS
+    test_index_event_layout
     RUNTIME DESTINATION bin
 )

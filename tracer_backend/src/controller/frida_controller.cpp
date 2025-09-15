@@ -543,11 +543,24 @@ int FridaController::install_hooks() {
     
     printf("[Controller] Using agent library: %s\n", agent_path);
     
-    // Prepare initialization payload
-    char init_payload[256];
-    snprintf(init_payload, sizeof(init_payload),
-             "host_pid=%u;session_id=%08x",
-             shared_memory_get_pid(), shared_memory_get_session_id());
+    // Prepare initialization payload (optionally include exclude CSV)
+    const char* exclude_csv = getenv("ADA_EXCLUDE");
+    char init_payload[512];
+    if (exclude_csv && *exclude_csv) {
+        // Trim payload if too long
+        char exclude_buf[256];
+        size_t n = strlen(exclude_csv);
+        if (n >= sizeof(exclude_buf)) n = sizeof(exclude_buf) - 1;
+        memcpy(exclude_buf, exclude_csv, n);
+        exclude_buf[n] = '\0';
+        snprintf(init_payload, sizeof(init_payload),
+                 "host_pid=%u;session_id=%08x;exclude=%s",
+                 shared_memory_get_pid(), shared_memory_get_session_id(), exclude_buf);
+    } else {
+        snprintf(init_payload, sizeof(init_payload),
+                 "host_pid=%u;session_id=%08x",
+                 shared_memory_get_pid(), shared_memory_get_session_id());
+    }
     
     // Create QuickJS loader script (MVP path)
     char script_source[4096];
