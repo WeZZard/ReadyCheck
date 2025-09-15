@@ -106,6 +106,41 @@ target_link_libraries(test_thread_registration_tls
         Threads::Threads
 )
 
+# SHM Directory tests (M1_E1_I8)
+add_executable(test_shm_directory
+    test_shm_directory.cpp
+)
+target_include_directories(test_shm_directory
+    PRIVATE
+        ${CMAKE_SOURCE_DIR}/include
+)
+target_link_libraries(test_shm_directory
+    PRIVATE
+        test_main
+        GTest::gtest
+        GTest::gmock
+        tracer_utils
+    Threads::Threads
+)
+
+# Thread Registry fallback tests (exercise local-base path)
+add_executable(test_thread_registry_fallback
+    test_thread_registry_fallback.cpp
+)
+target_include_directories(test_thread_registry_fallback
+    PRIVATE
+        ${CMAKE_SOURCE_DIR}/include
+        ${CMAKE_SOURCE_DIR}/src/utils
+)
+target_link_libraries(test_thread_registry_fallback
+    PRIVATE
+        test_main
+        GTest::gtest
+        GTest::gmock
+        tracer_utils
+        Threads::Threads
+)
+
 # Test Discovery
 gtest_discover_tests(test_ring_buffer
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
@@ -132,6 +167,18 @@ gtest_discover_tests(test_thread_registry
     PROPERTIES LABELS "unit"
 )
 gtest_discover_tests(test_thread_registration_tls
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+    DISCOVERY_MODE PRE_TEST
+    DISCOVERY_TIMEOUT 60
+    PROPERTIES LABELS "unit"
+)
+gtest_discover_tests(test_shm_directory
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+    DISCOVERY_MODE PRE_TEST
+    DISCOVERY_TIMEOUT 60
+    PROPERTIES LABELS "unit"
+)
+gtest_discover_tests(test_thread_registry_fallback
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
     DISCOVERY_MODE PRE_TEST
     DISCOVERY_TIMEOUT 60
@@ -176,5 +223,7 @@ install(TARGETS
     test_thread_registration_tls
     test_offsets_materialization
     test_control_block_ipc
+    test_shm_directory
+    test_thread_registry_fallback
     RUNTIME DESTINATION bin
 )

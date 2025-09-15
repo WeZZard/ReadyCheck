@@ -5,6 +5,7 @@
 # Source files for utils library
 set(UTILS_SOURCES
     shared_memory.c
+    shm_directory.c
     ring_buffer.cpp
     thread_registry.cpp
     ada_thread.c

@@ -27,6 +27,8 @@ extern "C" {
 #include <tracer_backend/utils/thread_registry.h>
 #include <tracer_backend/ada/thread.h>
 #include <tracer_backend/utils/ring_buffer.h>
+// SHM directory mapping helpers (M1_E1_I8)
+#include <tracer_backend/utils/shm_directory.h>
 
 // TLS variable for C compatibility
 __thread ThreadLaneSet* tls_my_lanes = nullptr;
@@ -244,9 +246,9 @@ bool lane_submit_ring(Lane* lane, uint32_t ring_idx) {
     ThreadRegistry* reg = ada_get_global_registry();
     if (!reg || !parent) return false;
     auto* cpp_reg = reinterpret_cast<ada::internal::ThreadRegistry*>(reg);
-    uint8_t* reg_base = reinterpret_cast<uint8_t*>(cpp_reg);
-    auto& seg = cpp_reg->segments[0];
-    uint8_t* pool_base = reg_base + seg.base_offset;
+    void* base0 = shm_dir_get_base(0);
+    uint8_t* pool_base = base0 ? (reinterpret_cast<uint8_t*>(base0) + cpp_reg->segments[0].base_offset)
+                               : (reinterpret_cast<uint8_t*>(cpp_reg) + cpp_reg->segments[0].base_offset);
     uint64_t layout_off = is_index ? parent->index_layout_off : parent->detail_layout_off;
     auto* layout = reinterpret_cast<ada::internal::LaneMemoryLayout*>(pool_base + layout_off);
 
@@ -287,9 +289,9 @@ uint32_t lane_take_ring(Lane* lane) {
     ThreadRegistry* reg = ada_get_global_registry();
     if (!reg || !parent) return UINT32_MAX;
     auto* cpp_reg = reinterpret_cast<ada::internal::ThreadRegistry*>(reg);
-    uint8_t* reg_base = reinterpret_cast<uint8_t*>(cpp_reg);
-    auto& seg = cpp_reg->segments[0];
-    uint8_t* pool_base = reg_base + seg.base_offset;
+    void* base0 = shm_dir_get_base(0);
+    uint8_t* pool_base = base0 ? (reinterpret_cast<uint8_t*>(base0) + cpp_reg->segments[0].base_offset)
+                               : (reinterpret_cast<uint8_t*>(cpp_reg) + cpp_reg->segments[0].base_offset);
     uint64_t layout_off = is_index ? parent->index_layout_off : parent->detail_layout_off;
     auto* layout = reinterpret_cast<ada::internal::LaneMemoryLayout*>(pool_base + layout_off);
 
@@ -322,9 +324,9 @@ bool lane_return_ring(Lane* lane, uint32_t ring_idx) {
     ThreadRegistry* reg = ada_get_global_registry();
     if (!reg || !parent) return false;
     auto* cpp_reg = reinterpret_cast<ada::internal::ThreadRegistry*>(reg);
-    uint8_t* reg_base = reinterpret_cast<uint8_t*>(cpp_reg);
-    auto& seg = cpp_reg->segments[0];
-    uint8_t* pool_base = reg_base + seg.base_offset;
+    void* base0 = shm_dir_get_base(0);
+    uint8_t* pool_base = base0 ? (reinterpret_cast<uint8_t*>(base0) + cpp_reg->segments[0].base_offset)
+                               : (reinterpret_cast<uint8_t*>(cpp_reg) + cpp_reg->segments[0].base_offset);
     uint64_t layout_off = is_index ? parent->index_layout_off : parent->detail_layout_off;
     auto* layout = reinterpret_cast<ada::internal::LaneMemoryLayout*>(pool_base + layout_off);
 
@@ -358,9 +360,9 @@ uint32_t lane_get_free_ring(Lane* lane) {
     ThreadRegistry* reg = ada_get_global_registry();
     if (!reg || !parent) return UINT32_MAX;
     auto* cpp_reg = reinterpret_cast<ada::internal::ThreadRegistry*>(reg);
-    uint8_t* reg_base = reinterpret_cast<uint8_t*>(cpp_reg);
-    auto& seg = cpp_reg->segments[0];
-    uint8_t* pool_base = reg_base + seg.base_offset;
+    void* base0 = shm_dir_get_base(0);
+    uint8_t* pool_base = base0 ? (reinterpret_cast<uint8_t*>(base0) + cpp_reg->segments[0].base_offset)
+                               : (reinterpret_cast<uint8_t*>(cpp_reg) + cpp_reg->segments[0].base_offset);
     uint64_t layout_off = is_index ? parent->index_layout_off : parent->detail_layout_off;
     auto* layout = reinterpret_cast<ada::internal::LaneMemoryLayout*>(pool_base + layout_off);
 
@@ -411,9 +413,9 @@ bool Lane::submit_ring(uint32_t ring_idx) {
     ::ThreadRegistry* reg = ada_get_global_registry();
     if (!reg || !parent) return false;
     auto* cpp_reg = reinterpret_cast<ada::internal::ThreadRegistry*>(reg);
-    uint8_t* reg_base = reinterpret_cast<uint8_t*>(cpp_reg);
-    auto& seg = cpp_reg->segments[0];
-    uint8_t* pool_base = reg_base + seg.base_offset;
+    void* base0 = shm_dir_get_base(0);
+    uint8_t* pool_base = base0 ? (reinterpret_cast<uint8_t*>(base0) + cpp_reg->segments[0].base_offset)
+                               : (reinterpret_cast<uint8_t*>(cpp_reg) + cpp_reg->segments[0].base_offset);
     uint64_t layout_off = is_index ? parent->index_layout_off : parent->detail_layout_off;
     auto* layout = reinterpret_cast<LaneMemoryLayout*>(pool_base + layout_off);
 

@@ -24,6 +24,8 @@ extern "C" {
 #include <tracer_backend/utils/shared_memory.h>
 // Thread registry API for per-thread lanes
 #include <tracer_backend/utils/thread_registry.h>
+// SHM directory mapping helpers (M1_E1_I8)
+#include <tracer_backend/utils/shm_directory.h>
 }
 
 // Include C++ implementation headers
@@ -207,6 +209,10 @@ bool AgentContext::open_shared_memory() {
     // Map control block
     control_block_ = static_cast<ControlBlock*>(shm_control_.get_address());
     if (ada::internal::g_agent_verbose) g_debug("[Agent] Control block mapped at %p\n", control_block_);
+    // Map SHM directory bases (if published)
+    if (control_block_) {
+        (void)shm_dir_map_local_bases(&control_block_->shm_directory);
+    }
 
     // Initialize registry_mode to our current state
     if (control_block_) {

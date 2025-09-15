@@ -62,6 +62,10 @@ SharedMemoryRef shared_memory_create_unique(const char* role, pid_t pid, uint32_
 SharedMemoryRef shared_memory_open_unique(const char* role, pid_t pid, uint32_t session_id,
                                         size_t size);
 
+// Open shared memory by OS name (e.g. "/ada_registry_...")
+// Size must match the creator-specified size.
+SharedMemoryRef shared_memory_open_named(const char* name, size_t size);
+
 // Destroy shared memory
 void shared_memory_destroy(SharedMemoryRef shm);
 

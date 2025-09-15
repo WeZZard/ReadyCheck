@@ -236,6 +236,17 @@ bool FridaController::initialize_shared_memory() {
             g_debug("Failed to initialize thread registry at %p (size=%zu)\n", reg_addr, registry_size);
             return false;
         }
+        // Publish SHM directory (M1_E1_I8)
+        control_block_->shm_directory.schema_version = 1;
+        control_block_->shm_directory.count = 1; // Only registry arena for now
+        auto* e0 = &control_block_->shm_directory.entries[0];
+        memset(e0->name, 0, sizeof(e0->name));
+        const char* reg_name = shared_memory_get_name(shm_registry_.get());
+        if (reg_name && reg_name[0] != '\0') {
+            // shared_memory ensures leading '/'; copy as-is
+            strncpy(e0->name, reg_name, sizeof(e0->name) - 1);
+        }
+        e0->size = (uint64_t)registry_size;
         // Publish registry IPC readiness
         cb_set_registry_version(control_block_, 1);
         cb_set_registry_epoch(control_block_, 1);

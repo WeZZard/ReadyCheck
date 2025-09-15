@@ -122,6 +122,23 @@ typedef struct {
     uint32_t _padding;
 } ThreadInfo;
 
+// ================================
+// SHM Directory (M1_E1_I8)
+// ================================
+// Canonical directory published by controller and consumed by agent
+// for process-local address materialization. Indices are stable for
+// the process lifetime. Entry 0 is the registry arena.
+typedef struct {
+    char     name[64];   // OS SHM name (e.g., "/ada_registry_...")
+    uint64_t size;       // bytes
+} ShmEntry;
+
+typedef struct {
+    uint32_t schema_version; // for future evolution
+    uint32_t count;          // number of entries
+    ShmEntry entries[8];     // 0 = registry arena; others reserved
+} ShmDirectory;
+
 // Control block for shared state
 typedef struct {
     ProcessState process_state;
@@ -145,8 +162,7 @@ typedef struct {
     uint64_t mode_transitions;      // Number of mode transitions observed (agent/controller)
     uint64_t fallback_events;       // Number of fallbacks to global-only path
 
-    // Reserved for future flags/fields
-    uint32_t _reserved[1];
+    ShmDirectory shm_directory;
 } ControlBlock;
 
 // Statistics

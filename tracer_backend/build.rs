@@ -175,6 +175,15 @@ fn main() {
         ("build/test_control_block_ipc", "test/test_control_block_ipc"),
         ("build/tests/unit/utils/test_control_block_ipc", "test/test_control_block_ipc"),
         ("out/bin/test_control_block_ipc", "test/test_control_block_ipc"),
+        ("build/test_shm_directory", "test/test_shm_directory"),
+        ("build/tests/unit/utils/test_shm_directory", "test/test_shm_directory"),
+        ("out/bin/test_shm_directory", "test/test_shm_directory"),
+        ("build/test_thread_registration_tls", "test/test_thread_registration_tls"),
+        ("build/tests/unit/utils/test_thread_registration_tls", "test/test_thread_registration_tls"),
+        ("out/bin/test_thread_registration_tls", "test/test_thread_registration_tls"),
+        ("build/test_offsets_materialization", "test/test_offsets_materialization"),
+        ("build/tests/unit/utils/test_offsets_materialization", "test/test_offsets_materialization"),
+        ("out/bin/test_offsets_materialization", "test/test_offsets_materialization"),
         // Note: test_thread_registry_cpp is not built; entries removed
         // Controller unit tests
         ("build/test_spawn_method", "test/test_spawn_method"),

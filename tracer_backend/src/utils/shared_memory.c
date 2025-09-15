@@ -196,6 +196,11 @@ SharedMemoryRef shared_memory_open_unique(const char* role, pid_t pid, uint32_t 
     return shared_memory_open(name, size);
 }
 
+SharedMemoryRef shared_memory_open_named(const char* name, size_t size) {
+    if (!name || name[0] == '\0') return NULL;
+    return shared_memory_open(name, size);
+}
+
 void shared_memory_destroy(SharedMemoryRef shm) {
     if (!shm) {
         DEBUG_LOG("SharedMemory is NULL\n");
