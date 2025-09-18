@@ -1,6 +1,8 @@
-# M1_E1_I6 Backlogs: Offset-Only SHM
+---
+status: completed
+---
 
-## Status: ✅ COMPLETED
+# M1_E1_I6 Backlogs: Offset-Only SHM
 
 ## Completion Summary
 - Refactored SHM structures to use offsets instead of absolute pointers

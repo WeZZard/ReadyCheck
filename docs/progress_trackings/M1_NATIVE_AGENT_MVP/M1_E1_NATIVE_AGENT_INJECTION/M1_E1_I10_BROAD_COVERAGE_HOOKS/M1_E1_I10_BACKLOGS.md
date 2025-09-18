@@ -1,3 +1,7 @@
+---
+status: completed
+---
+
 # M1_E1_I10 Backlogs: Broad Coverage Hooks
 
 ## Implementation Tasks

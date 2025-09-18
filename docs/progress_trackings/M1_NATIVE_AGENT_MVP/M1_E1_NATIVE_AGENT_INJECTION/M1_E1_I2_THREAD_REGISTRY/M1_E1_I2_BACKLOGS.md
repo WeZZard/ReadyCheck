@@ -1,6 +1,8 @@
-# Backlogs — M1 E1 I2 Thread Registry
+---
+status: completed
+---
 
-Status: ✅ COMPLETED
+# Backlogs — M1 E1 I2 Thread Registry
 
 Completion Summary:
 - Implemented ThreadRegistry with per-thread ThreadLaneSet and lane structures.

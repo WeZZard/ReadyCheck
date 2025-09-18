@@ -1,3 +1,7 @@
+---
+status: completed
+---
+
 # M1_E1_I9 Backlogs: Ring Pool Swap Protocol
 
 ## Implementation Tasks

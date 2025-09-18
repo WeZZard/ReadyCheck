@@ -1,6 +1,8 @@
-# M1_E1_I3 Backlogs: Ring Buffer Core
+---
+status: completed
+---
 
-Status: ✅ COMPLETED
+# M1_E1_I3 Backlogs: Ring Buffer Core
 
 Completion Summary:
 - SPSC ring buffer implemented with power-of-two capacity and bitmask wrap.

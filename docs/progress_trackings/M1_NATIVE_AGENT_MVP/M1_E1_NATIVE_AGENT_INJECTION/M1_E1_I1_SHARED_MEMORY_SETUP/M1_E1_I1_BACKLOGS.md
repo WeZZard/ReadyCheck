@@ -1,6 +1,8 @@
-# M1_E1_I1: Shared Memory Setup - Backlogs
+---
+status: completed
+---
 
-## Iteration Status: ✅ COMPLETED
+# M1_E1_I1: Shared Memory Setup - Backlogs
 
 ## Summary
 This iteration established the foundation for shared memory communication between the tracer and native agent. All planned tasks have been successfully completed.

@@ -1,3 +1,7 @@
+---
+status: completed
+---
+
 # M1_E1_I7 Backlogs: Registry Readiness, Warm‑Up, and Fallback
 
 ## Sprint Overview

@@ -1,6 +1,8 @@
-# M1_E1_I4 Backlogs: Agent Loader
+---
+status: completed
+---
 
-Status: ✅ COMPLETED (MVP SCOPE)
+# M1_E1_I4 Backlogs: Agent Loader
 
 MVP Scope Decision:
 - Native (scriptless) injection is deferred to a global backlog item due to platform loader/injector issues surfaced during I4.

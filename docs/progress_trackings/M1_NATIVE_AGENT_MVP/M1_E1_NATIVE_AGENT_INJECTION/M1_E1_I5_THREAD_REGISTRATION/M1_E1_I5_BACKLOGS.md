@@ -1,6 +1,8 @@
-# M1_E1_I5 Backlogs: Thread Registration
+---
+status: completed
+---
 
-## Status: ✅ COMPLETED
+# M1_E1_I5 Backlogs: Thread Registration
 
 ## Completion Summary
 - Thread-local storage (TLS) structure implemented with fast path optimization

@@ -1,3 +1,7 @@
+---
+status: completed
+---
+
 # M1_E1_I8 Backlogs: Address Materialization & SHM Index Registration
 
 ## Sprint Overview
