@@ -31,14 +31,14 @@ extern "C" {
 #define ATF_V4_MAX_ARGS 16
 #endif
 
-// Forward declaration for protobuf structs
-typedef struct _Event Event;
-typedef struct _TraceStart TraceStart;
-typedef struct _TraceEnd TraceEnd;
-typedef struct _FunctionCall FunctionCall;
-typedef struct _FunctionReturn FunctionReturn;
-typedef struct _SignalDelivery SignalDelivery;
-typedef struct _Google__Protobuf__Timestamp Google__Protobuf__Timestamp;
+// Forward declarations for protobuf structs
+typedef struct Event Event;
+typedef struct TraceStart TraceStart;
+typedef struct TraceEnd TraceEnd;
+typedef struct FunctionCall FunctionCall;
+typedef struct FunctionReturn FunctionReturn;
+typedef struct SignalDelivery SignalDelivery;
+typedef struct Google__Protobuf__Timestamp Google__Protobuf__Timestamp;
 
 typedef enum {
     ATF_V4_EVENT_TRACE_START = 0,

@@ -15,14 +15,17 @@ extern "C" {
 typedef struct {
     Google__Protobuf__Timestamp timestamp;
     TraceStart trace_start;
-    const char* trace_args_storage[ATF_V4_MAX_ARGS];
+    char* trace_args_storage[ATF_V4_MAX_ARGS];
     TraceEnd trace_end;
     FunctionCall function_call;
     FunctionCall__ArgumentRegistersEntry call_entries[ATF_V4_MAX_REGISTERS];
+    FunctionCall__ArgumentRegistersEntry* call_entry_ptrs[ATF_V4_MAX_REGISTERS];
     FunctionReturn function_return;
     FunctionReturn__ReturnRegistersEntry return_entries[ATF_V4_MAX_REGISTERS];
+    FunctionReturn__ReturnRegistersEntry* return_entry_ptrs[ATF_V4_MAX_REGISTERS];
     SignalDelivery signal_delivery;
     SignalDelivery__RegistersEntry signal_entries[ATF_V4_MAX_REGISTERS];
+    SignalDelivery__RegistersEntry* signal_entry_ptrs[ATF_V4_MAX_REGISTERS];
 } AtfV4ProtoScratchTest;
 
 void atf_v4_test_reset_scratch(AtfV4ProtoScratchTest* scratch);

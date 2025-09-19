@@ -22,14 +22,17 @@
 typedef struct {
     Google__Protobuf__Timestamp timestamp;
     TraceStart trace_start;
-    const char* trace_args_storage[ATF_V4_MAX_ARGS];
+    char* trace_args_storage[ATF_V4_MAX_ARGS];
     TraceEnd trace_end;
     FunctionCall function_call;
     FunctionCall__ArgumentRegistersEntry call_entries[ATF_V4_MAX_REGISTERS];
+    FunctionCall__ArgumentRegistersEntry* call_entry_ptrs[ATF_V4_MAX_REGISTERS];
     FunctionReturn function_return;
     FunctionReturn__ReturnRegistersEntry return_entries[ATF_V4_MAX_REGISTERS];
+    FunctionReturn__ReturnRegistersEntry* return_entry_ptrs[ATF_V4_MAX_REGISTERS];
     SignalDelivery signal_delivery;
     SignalDelivery__RegistersEntry signal_entries[ATF_V4_MAX_REGISTERS];
+    SignalDelivery__RegistersEntry* signal_entry_ptrs[ATF_V4_MAX_REGISTERS];
 } ProtoScratch;
 
 static uint64_t current_time_ns(void) {
@@ -99,18 +102,18 @@ static int convert_trace_start(const AtfV4TraceStart* src, ProtoScratch* scratch
         return -EINVAL;
     }
     scratch->trace_start = (TraceStart)TRACE_START__INIT;
-    scratch->trace_start.executable_path = src->executable_path;
-    scratch->trace_start.operating_system = src->operating_system;
-    scratch->trace_start.cpu_architecture = src->cpu_architecture;
+    scratch->trace_start.executable_path = (char*)src->executable_path;
+    scratch->trace_start.operating_system = (char*)src->operating_system;
+    scratch->trace_start.cpu_architecture = (char*)src->cpu_architecture;
 
     size_t argc = src->argc;
     if (argc > ATF_V4_MAX_ARGS) {
         return -E2BIG;
     }
     for (size_t i = 0; i < argc; ++i) {
-        scratch->trace_args_storage[i] = src->argv ? src->argv[i] : NULL;
+        scratch->trace_args_storage[i] = src->argv ? (char*)src->argv[i] : NULL;
     }
-    scratch->trace_start.args = (char**)scratch->trace_args_storage;
+    scratch->trace_start.args = scratch->trace_args_storage;
     scratch->trace_start.n_args = argc;
     return 0;
 }
@@ -127,14 +130,16 @@ static int convert_function_call(const AtfV4FunctionCall* src, ProtoScratch* scr
     }
 
     scratch->function_call = (FunctionCall)FUNCTION_CALL__INIT;
-    scratch->function_call.symbol = src->symbol;
+    scratch->function_call.symbol = (char*)src->symbol;
     scratch->function_call.address = src->address;
 
     for (size_t i = 0; i < src->register_count; ++i) {
+        scratch->call_entries[i] = (FunctionCall__ArgumentRegistersEntry)FUNCTION_CALL__ARGUMENT_REGISTERS_ENTRY__INIT;
         scratch->call_entries[i].key = (char*)src->registers[i].name;
         scratch->call_entries[i].value = src->registers[i].value;
+        scratch->call_entry_ptrs[i] = &scratch->call_entries[i];
     }
-    scratch->function_call.argument_registers = scratch->call_entries;
+    scratch->function_call.argument_registers = scratch->call_entry_ptrs;
     scratch->function_call.n_argument_registers = src->register_count;
 
     scratch->function_call.stack_shallow_copy.len = src->stack_size;
@@ -151,14 +156,16 @@ static int convert_function_return(const AtfV4FunctionReturn* src, ProtoScratch*
     }
 
     scratch->function_return = (FunctionReturn)FUNCTION_RETURN__INIT;
-    scratch->function_return.symbol = src->symbol;
+    scratch->function_return.symbol = (char*)src->symbol;
     scratch->function_return.address = src->address;
 
     for (size_t i = 0; i < src->register_count; ++i) {
+        scratch->return_entries[i] = (FunctionReturn__ReturnRegistersEntry)FUNCTION_RETURN__RETURN_REGISTERS_ENTRY__INIT;
         scratch->return_entries[i].key = (char*)src->registers[i].name;
         scratch->return_entries[i].value = src->registers[i].value;
+        scratch->return_entry_ptrs[i] = &scratch->return_entries[i];
     }
-    scratch->function_return.return_registers = scratch->return_entries;
+    scratch->function_return.return_registers = scratch->return_entry_ptrs;
     scratch->function_return.n_return_registers = src->register_count;
     return 0;
 }
@@ -173,13 +180,15 @@ static int convert_signal_delivery(const AtfV4SignalDelivery* src, ProtoScratch*
 
     scratch->signal_delivery = (SignalDelivery)SIGNAL_DELIVERY__INIT;
     scratch->signal_delivery.number = src->number;
-    scratch->signal_delivery.name = src->name;
+    scratch->signal_delivery.name = (char*)src->name;
 
     for (size_t i = 0; i < src->register_count; ++i) {
+        scratch->signal_entries[i] = (SignalDelivery__RegistersEntry)SIGNAL_DELIVERY__REGISTERS_ENTRY__INIT;
         scratch->signal_entries[i].key = (char*)src->registers[i].name;
         scratch->signal_entries[i].value = src->registers[i].value;
+        scratch->signal_entry_ptrs[i] = &scratch->signal_entries[i];
     }
-    scratch->signal_delivery.registers = scratch->signal_entries;
+    scratch->signal_delivery.registers = scratch->signal_entry_ptrs;
     scratch->signal_delivery.n_registers = src->register_count;
     return 0;
 }
@@ -191,8 +200,8 @@ static int convert_event(const AtfV4Event* src, Event* dst, ProtoScratch* scratc
 
     *dst = (Event)EVENT__INIT;
     scratch->timestamp = (Google__Protobuf__Timestamp)GOOGLE__PROTOBUF__TIMESTAMP__INIT;
-    scratch->timestamp.seconds = src->timestamp_ns / 1000000000ull;
-    scratch->timestamp.nanos = (uint32_t)(src->timestamp_ns % 1000000000ull);
+    scratch->timestamp.seconds = (int64_t)(src->timestamp_ns / 1000000000ull);
+    scratch->timestamp.nanos = (int32_t)(src->timestamp_ns % 1000000000ull);
 
     dst->event_id = src->event_id;
     dst->thread_id = src->thread_id;

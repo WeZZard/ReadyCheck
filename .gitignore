@@ -289,3 +289,7 @@ build_tracer/
 # Coverage and reports
 target/coverage/
 target/coverage_report/
+
+# Generated protobuf files
+*.pb-c.c
+*.pb-c.h

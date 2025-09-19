@@ -126,10 +126,10 @@ TEST(atf_v4_writer_unit, unit__convert_function_return_with_valid_registers__the
     EXPECT_STREQ("target", scratch.function_return.symbol);
     EXPECT_EQ(0xABCDEFu, scratch.function_return.address);
     ASSERT_EQ(2u, scratch.function_return.n_return_registers);
-    EXPECT_STREQ("x0", scratch.function_return.return_registers[0].key);
-    EXPECT_EQ(10u, scratch.function_return.return_registers[0].value);
-    EXPECT_STREQ("x1", scratch.function_return.return_registers[1].key);
-    EXPECT_EQ(20u, scratch.function_return.return_registers[1].value);
+    EXPECT_STREQ("x0", scratch.function_return.return_registers[0]->key);
+    EXPECT_EQ(10u, scratch.function_return.return_registers[0]->value);
+    EXPECT_STREQ("x1", scratch.function_return.return_registers[1]->key);
+    EXPECT_EQ(20u, scratch.function_return.return_registers[1]->value);
 }
 
 TEST(atf_v4_writer_unit, unit__convert_function_return_missing_symbol__then_error_returned) {
@@ -168,8 +168,8 @@ TEST(atf_v4_writer_unit, unit__convert_signal_delivery_valid_payload__then_regis
     EXPECT_EQ(9, scratch.signal_delivery.number);
     EXPECT_STREQ("SIGKILL", scratch.signal_delivery.name);
     ASSERT_EQ(1u, scratch.signal_delivery.n_registers);
-    EXPECT_STREQ("pc", scratch.signal_delivery.registers[0].key);
-    EXPECT_EQ(0x1234u, scratch.signal_delivery.registers[0].value);
+    EXPECT_STREQ("pc", scratch.signal_delivery.registers[0]->key);
+    EXPECT_EQ(0x1234u, scratch.signal_delivery.registers[0]->value);
 }
 
 TEST(atf_v4_writer_unit, unit__convert_signal_delivery_null_input__then_error_returned) {
@@ -187,6 +187,36 @@ TEST(atf_v4_writer_unit, unit__convert_signal_delivery_exceeds_register_limit__t
     atf_v4_test_reset_scratch(&scratch);
 
     EXPECT_EQ(-E2BIG, atf_v4_test_convert_signal_delivery(&delivery, &scratch));
+}
+
+TEST(atf_v4_writer_unit, unit__convert_function_call_valid_payload__then_register_map_emitted) {
+    AtfV4FunctionCall call{};
+    call.symbol = "target";
+    call.address = 0xBEEFu;
+    call.register_count = 2;
+    std::strncpy(call.registers[0].name, "x0", sizeof(call.registers[0].name));
+    call.registers[0].value = 111u;
+    std::strncpy(call.registers[1].name, "x1", sizeof(call.registers[1].name));
+    call.registers[1].value = 222u;
+    static const uint8_t stack_bytes[] = {0xAA, 0xBB, 0xCC};
+    call.stack_bytes = stack_bytes;
+    call.stack_size = sizeof(stack_bytes);
+
+    AtfV4ProtoScratchTest scratch{};
+    atf_v4_test_reset_scratch(&scratch);
+
+    ASSERT_EQ(0, atf_v4_test_convert_function_call(&call, &scratch));
+    EXPECT_STREQ("target", scratch.function_call.symbol);
+    EXPECT_EQ(0xBEEFu, scratch.function_call.address);
+    ASSERT_EQ(call.register_count, scratch.function_call.n_argument_registers);
+    ASSERT_NE(nullptr, scratch.function_call.argument_registers);
+    EXPECT_STREQ("x0", scratch.function_call.argument_registers[0]->key);
+    EXPECT_EQ(111u, scratch.function_call.argument_registers[0]->value);
+    EXPECT_STREQ("x1", scratch.function_call.argument_registers[1]->key);
+    EXPECT_EQ(222u, scratch.function_call.argument_registers[1]->value);
+    EXPECT_EQ(call.stack_size, scratch.function_call.stack_shallow_copy.len);
+    const auto* stack_ptr = static_cast<const uint8_t*>(scratch.function_call.stack_shallow_copy.data);
+    EXPECT_EQ(stack_bytes, stack_ptr);
 }
 
 TEST(atf_v4_writer_unit, unit__convert_event_with_null_arguments__then_error_returned) {
@@ -256,8 +286,8 @@ TEST(atf_v4_writer_unit, unit__convert_event_signal_delivery__then_registers_cop
     EXPECT_STREQ(event.payload.signal_delivery.name, proto.signal_delivery->name);
     ASSERT_EQ(event.payload.signal_delivery.register_count,
               proto.signal_delivery->n_registers);
-    EXPECT_STREQ("pc", proto.signal_delivery->registers[0].key);
-    EXPECT_EQ(0xABCu, proto.signal_delivery->registers[0].value);
+    EXPECT_STREQ("pc", proto.signal_delivery->registers[0]->key);
+    EXPECT_EQ(0xABCu, proto.signal_delivery->registers[0]->value);
     EXPECT_EQ(event.payload.signal_delivery.register_count,
               scratch.signal_delivery.n_registers);
 }
