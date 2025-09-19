@@ -664,11 +664,19 @@ static bool drain_iteration(DrainThread* drain) {
     atomic_store_explicit(&drain->metrics.iteration_duration_ns, iteration_duration, memory_order_relaxed);
 
     // Calculate throughput
-    if (iteration_duration > 0) {
-        uint64_t events_per_sec = (total_events_drained * 1000000000ull) / iteration_duration;
-        uint64_t bytes_per_sec = (total_bytes_drained * 1000000000ull) / iteration_duration;
+    // Use a minimum duration of 1ns to avoid division by zero and ensure metrics are always set
+    // This handles cases where execution is extremely fast (e.g., in test environments)
+    uint64_t effective_duration = iteration_duration > 0 ? iteration_duration : 1;
+
+    if (total_events_drained > 0) {
+        uint64_t events_per_sec = (total_events_drained * 1000000000ull) / effective_duration;
+        uint64_t bytes_per_sec = (total_bytes_drained * 1000000000ull) / effective_duration;
         atomic_store_explicit(&drain->metrics.events_per_second, events_per_sec, memory_order_relaxed);
         atomic_store_explicit(&drain->metrics.bytes_per_second, bytes_per_sec, memory_order_relaxed);
+    } else {
+        // No events were drained, set metrics to 0
+        atomic_store_explicit(&drain->metrics.events_per_second, 0, memory_order_relaxed);
+        atomic_store_explicit(&drain->metrics.bytes_per_second, 0, memory_order_relaxed);
     }
 
     // Update fairness index immediately on the first iteration, then periodically (every 100 iterations)

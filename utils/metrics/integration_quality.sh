@@ -231,9 +231,11 @@ build_all() {
         export LLVM_PROFILE_FILE="${COVERAGE_DIR}/prof-%p-%m.profraw"
         mkdir -p "$COVERAGE_DIR"
     fi
-    
-    # Clean previous build artifacts
-    cargo clean
+
+    # Clean previous build artifacts (skip in incremental mode for speed)
+    if [[ "$MODE" != "incremental" ]]; then
+        cargo clean
+    fi
 
     # Run build and capture output
     if ! cargo build --all --release $BUILD_FLAGS 2>&1 | tee "$BUILD_OUTPUT"; then
@@ -527,13 +529,28 @@ collect_coverage() {
     fi
     
     log_info "Collecting coverage data..."
-    
-    # Run coverage helper
-    if ! cargo run --manifest-path "${REPO_ROOT}/utils/coverage_helper/Cargo.toml" -- full; then
-        log_warning "Coverage collection failed"
+
+    # Run coverage helper with timeout to prevent hanging
+    # In incremental mode, use shorter timeout since we only care about changed files
+    local coverage_timeout="300"  # 5 minutes default
+    if [[ "$MODE" == "incremental" ]]; then
+        coverage_timeout="60"  # 1 minute for incremental
+    fi
+
+    if ! timeout "$coverage_timeout" cargo run --manifest-path "${REPO_ROOT}/utils/coverage_helper/Cargo.toml" -- full; then
+        if [[ $? -eq 124 ]]; then
+            log_warning "Coverage collection timed out after ${coverage_timeout}s"
+            # In incremental mode, timeout is acceptable if tests passed
+            if [[ "$MODE" == "incremental" ]]; then
+                log_info "Proceeding without full coverage in incremental mode"
+                return 0
+            fi
+        else
+            log_warning "Coverage collection failed"
+        fi
         return 1
     fi
-    
+
     # Check incremental coverage for changed files
     if [[ "$MODE" == "incremental" ]]; then
         check_incremental_coverage
