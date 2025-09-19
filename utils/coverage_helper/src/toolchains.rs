@@ -238,21 +238,26 @@ pub fn merge_profdata(
         anyhow::bail!("No .profraw files to merge");
     }
     
-    println!("  Merging {} .profraw files using {}", 
+    println!("  Merging {} .profraw files using {}",
              profraw_files.len(), toolchain.source);
-    
+
+    let start = std::time::Instant::now();
+
     let mut cmd = Command::new(&toolchain.profdata);
     cmd.arg("merge")
        .arg("-sparse");
-    
+
     for file in profraw_files {
         cmd.arg(file);
     }
-    
+
     cmd.arg("-o").arg(output);
-    
+
     let output = cmd.output()
         .context("Failed to run llvm-profdata merge")?;
+
+    let elapsed = start.elapsed();
+    println!("  [TIMING] llvm-profdata merge completed in {:.2}s", elapsed.as_secs_f32());
     
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -273,7 +278,10 @@ pub fn export_lcov(
         anyhow::bail!("No binaries to export coverage for");
     }
 
-    println!("  Exporting LCOV with coverage data using {}", toolchain.source);
+    println!("  Exporting LCOV with coverage data using {} ({} binaries)",
+             toolchain.source, binaries.len());
+
+    let start = std::time::Instant::now();
 
     let mut cmd = Command::new(&toolchain.cov);
     cmd.arg("export")
@@ -308,6 +316,9 @@ pub fn export_lcov(
 
     let output_data = cmd.output()
         .context("Failed to run llvm-cov export")?;
+
+    let elapsed = start.elapsed();
+    println!("  [TIMING] llvm-cov export completed in {:.2}s", elapsed.as_secs_f32());
 
     if !output_data.status.success() {
         let stderr = String::from_utf8_lossy(&output_data.stderr);

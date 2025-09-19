@@ -25,7 +25,13 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+CYAN='\033[0;36m'
 NC='\033[0m'
+
+# Timing tracking - using simple variables for compatibility
+# Format: SEGMENT_TIMES_NAME="duration_ms" SEGMENT_TIMES_NAME2="duration_ms"
+SEGMENT_TIMES=""
+SEGMENT_START_TIME=0
 
 # Exit codes
 CHECK_RESULT_PASSED=0
@@ -45,6 +51,78 @@ trap "rm -f $BUILD_OUTPUT $TEST_OUTPUT $COVERAGE_OUTPUT" EXIT
 # ============================================================================
 # UTILITY FUNCTIONS
 # ============================================================================
+
+# Timing functions
+start_timer() {
+    local segment_name="$1"
+    SEGMENT_START_TIME=$(date +%s%N)  # nanoseconds since epoch
+    log_info "Starting: $segment_name"
+}
+
+end_timer() {
+    local segment_name="$1"
+    local end_time=$(date +%s%N)
+    local duration_ns=$((end_time - SEGMENT_START_TIME))
+    local duration_ms=$((duration_ns / 1000000))
+    local duration_s=$((duration_ms / 1000))
+    local duration_display=""
+
+    if [[ $duration_s -gt 0 ]]; then
+        duration_display="${duration_s}.$(printf "%03d" $((duration_ms % 1000)))s"
+    else
+        duration_display="${duration_ms}ms"
+    fi
+
+    # Append to timing list (name:duration_ms format)
+    if [[ -z "$SEGMENT_TIMES" ]]; then
+        SEGMENT_TIMES="${segment_name}:${duration_ms}"
+    else
+        SEGMENT_TIMES="${SEGMENT_TIMES}|${segment_name}:${duration_ms}"
+    fi
+
+    echo -e "${CYAN}[TIMING]${NC} $segment_name completed in $duration_display"
+}
+
+print_timing_summary() {
+    echo -e "\n${CYAN}=== TIMING SUMMARY ===${NC}"
+    local total_ms=0
+
+    # Parse the timing string (format: name1:ms1|name2:ms2|...)
+    IFS='|' read -ra TIMINGS <<< "$SEGMENT_TIMES"
+    for timing in "${TIMINGS[@]}"; do
+        if [[ "$timing" =~ ^([^:]+):([0-9]+)$ ]]; then
+            local segment_name="${BASH_REMATCH[1]}"
+            local duration_ms="${BASH_REMATCH[2]}"
+            local duration_s=$((duration_ms / 1000))
+            local duration_display=""
+
+            if [[ $duration_s -gt 0 ]]; then
+                duration_display="${duration_s}.$(printf "%03d" $((duration_ms % 1000)))s"
+            else
+                duration_display="${duration_ms}ms"
+            fi
+
+            printf "  %-40s %10s\n" "$segment_name:" "$duration_display"
+            total_ms=$((total_ms + duration_ms))
+        fi
+    done
+
+    local total_s=$((total_ms / 1000))
+    local total_display=""
+    if [[ $total_s -gt 60 ]]; then
+        local minutes=$((total_s / 60))
+        local seconds=$((total_s % 60))
+        total_display="${minutes}m ${seconds}s"
+    elif [[ $total_s -gt 0 ]]; then
+        total_display="${total_s}.$(printf "%03d" $((total_ms % 1000)))s"
+    else
+        total_display="${total_ms}ms"
+    fi
+
+    echo -e "${CYAN}  ----------------------------------------${NC}"
+    printf "  %-40s %10s\n" "TOTAL:" "$total_display"
+    echo -e "${CYAN}======================${NC}\n"
+}
 
 log_info() {
     echo -e "${BLUE}[INFO]${NC} $1"
@@ -220,10 +298,11 @@ has_source_changes() {
 # ============================================================================
 
 build_all() {
+    start_timer "Build Phase"
     log_info "Building all components through Cargo..."
-    
+
     local BUILD_FLAGS=""
-    
+
     # Enable coverage instrumentation if not in score-only mode
     if [[ "$MODE" != "score-only" ]]; then
         BUILD_FLAGS="--features tracer_backend/coverage,query_engine/coverage"
@@ -234,10 +313,13 @@ build_all() {
 
     # Clean previous build artifacts (skip in incremental mode for speed)
     if [[ "$MODE" != "incremental" ]]; then
+        start_timer "Cargo Clean"
         cargo clean
+        end_timer "Cargo Clean"
     fi
 
     # Run build and capture output
+    start_timer "Cargo Build"
     if ! cargo build --all --release $BUILD_FLAGS 2>&1 | tee "$BUILD_OUTPUT"; then
         deduct_points 100 "Build failed"
         
@@ -246,15 +328,20 @@ build_all() {
             parse_build_errors_for_agent
         fi
         
+        end_timer "Cargo Build"
+        end_timer "Build Phase"
         return 1
     fi
-    
+    end_timer "Cargo Build"
+
     log_success "Build completed successfully"
-    
+
     # Sign binaries on macOS
     if [[ "$OSTYPE" == "darwin"* ]]; then
         sign_test_binaries
     fi
+
+    end_timer "Build Phase"
 }
 
 parse_build_errors_for_agent() {
@@ -314,6 +401,7 @@ parse_build_errors_for_agent() {
 }
 
 sign_test_binaries() {
+    start_timer "Sign Test Binaries"
     log_info "Signing test binaries (required on macOS)..."
 
     if (is_ci || is_ssh) && [ -z "${APPLE_DEVELOPER_ID:-}" ]; then
@@ -436,6 +524,7 @@ sign_test_binaries() {
 
     rm -f "$count_file" "$error_file"
     log_success "Successfully signed all $sign_count test binaries"
+    end_timer "Sign Test Binaries"
     return 0
 }
 
@@ -444,26 +533,32 @@ sign_test_binaries() {
 # ============================================================================
 
 run_tests() {
+    start_timer "Test Phase"
     log_info "Running all tests through Cargo..."
-    
+
     local TEST_FLAGS=""
     if [[ "$MODE" != "score-only" ]]; then
         TEST_FLAGS="--features tracer_backend/coverage,query_engine/coverage"
     fi
-    
+
     # Run tests and capture output
+    start_timer "Cargo Test"
     if ! cargo test --all $TEST_FLAGS 2>&1 | tee "$TEST_OUTPUT"; then
         deduct_points 100 "Tests failed"
-        
+
         # Parse test failures for agent
         if [[ "$AGENT_MODE" == "true" ]]; then
             parse_test_failures_for_agent
         fi
-        
+
+        end_timer "Cargo Test"
+        end_timer "Test Phase"
         return 1
     fi
-    
+    end_timer "Cargo Test"
+
     log_success "All tests passed"
+    end_timer "Test Phase"
 }
 
 parse_test_failures_for_agent() {
@@ -527,7 +622,8 @@ collect_coverage() {
     if [[ "$MODE" == "score-only" ]]; then
         return 0
     fi
-    
+
+    start_timer "Coverage Phase"
     log_info "Collecting coverage data..."
 
     # Run coverage helper with timeout to prevent hanging
@@ -537,24 +633,34 @@ collect_coverage() {
         coverage_timeout="60"  # 1 minute for incremental
     fi
 
+    start_timer "Coverage Collection (timeout: ${coverage_timeout}s)"
     if ! timeout "$coverage_timeout" cargo run --manifest-path "${REPO_ROOT}/utils/coverage_helper/Cargo.toml" -- full; then
         if [[ $? -eq 124 ]]; then
+            end_timer "Coverage Collection (timeout: ${coverage_timeout}s)"
             log_warning "Coverage collection timed out after ${coverage_timeout}s"
             # In incremental mode, timeout is acceptable if tests passed
             if [[ "$MODE" == "incremental" ]]; then
                 log_info "Proceeding without full coverage in incremental mode"
+                end_timer "Coverage Phase"
                 return 0
             fi
         else
             log_warning "Coverage collection failed"
         fi
+        end_timer "Coverage Collection (timeout: ${coverage_timeout}s)"
+        end_timer "Coverage Phase"
         return 1
     fi
+    end_timer "Coverage Collection (timeout: ${coverage_timeout}s)"
 
     # Check incremental coverage for changed files
     if [[ "$MODE" == "incremental" ]]; then
+        start_timer "Incremental Coverage Check"
         check_incremental_coverage
+        end_timer "Incremental Coverage Check"
     fi
+
+    end_timer "Coverage Phase"
 }
 
 check_incremental_coverage() {
@@ -739,7 +845,12 @@ main() {
     
     # Generate final report
     generate_final_report
-    return $?
+    local result=$?
+
+    # Print timing summary
+    print_timing_summary
+
+    return $result
 }
 
 # Run main
