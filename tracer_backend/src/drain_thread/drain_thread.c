@@ -681,6 +681,10 @@ static bool drain_iteration(DrainThread* drain) {
         atomic_store_explicit(&drain->metrics.bytes_per_second, 0, memory_order_relaxed);
     }
 
+    if (drain->registry) {
+        ada_global_metrics_collect(&drain->thread_metrics, drain->registry, iteration_end);
+    }
+
     // Update fairness index immediately on the first iteration, then periodically (every 100 iterations)
     uint64_t current_iteration = atomic_fetch_add_explicit(&iter->current_iteration, 1, memory_order_relaxed);
     if (current_iteration == 0 || current_iteration % 100 == 0) {
@@ -1011,6 +1015,14 @@ DrainThread* drain_thread_create(ThreadRegistry* registry, const DrainConfig* co
 
     drain_metrics_atomic_reset(&drain->metrics);
 
+    if (!ada_global_metrics_init(&drain->thread_metrics,
+                                 drain->thread_metrics_buffer,
+                                 MAX_THREADS)) {
+        pthread_mutex_destroy(&drain->lifecycle_lock);
+        free(drain);
+        return NULL;
+    }
+
     atomic_init(&drain->state, DRAIN_STATE_INITIALIZED);
     atomic_init(&drain->rr_cursor, 0);
     atomic_init(&drain->last_cycle_ns, monotonic_now_ns());
@@ -1198,6 +1210,13 @@ AtfV4Writer* drain_thread_get_atf_writer(DrainThread* drain) {
     AtfV4Writer* writer = drain->atf_writer;
     pthread_mutex_unlock(&drain->lifecycle_lock);
     return writer;
+}
+
+const ada_global_metrics_t* drain_thread_get_thread_metrics_view(const DrainThread* drain) {
+    if (!drain) {
+        return NULL;
+    }
+    return &drain->thread_metrics;
 }
 
 // --------------------------------------------------------------------------------------

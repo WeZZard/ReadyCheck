@@ -5,6 +5,7 @@
 #include "thread_registry_private.h"
 #include <tracer_backend/ada/thread.h>
 #include <tracer_backend/backpressure/backpressure.h>
+#include <tracer_backend/metrics/thread_metrics.h>
 
 struct AdaRingPool {
     ::ThreadRegistry* reg;
@@ -109,27 +110,36 @@ bool ring_pool_swap_active(RingPool* pool, uint32_t* out_old_idx) {
     auto* p = reinterpret_cast<AdaRingPool*>(pool);
     ::Lane* lane = pool_get_lane(p);
     if (!lane) return false;
+    auto* cpp_lane = ada::internal::to_cpp(lane);
 
     bp_sample_lane(p, lane, 0);
 
+    ada_thread_metrics_t* metrics = thread_lanes_get_metrics(p->lanes);
+    uint64_t swap_start = metrics ? ada_metrics_now_ns() : 0;
+    ada_metrics_swap_token_t swap_token = ada_thread_metrics_swap_begin(metrics, swap_start);
+
     uint32_t new_idx = lane_get_free_ring(lane);
     if (new_idx == UINT32_MAX) {
+        if (metrics) {
+            ada_thread_metrics_record_ring_full(metrics);
+        }
         if (ring_pool_handle_exhaustion(pool)) {
             new_idx = lane_get_free_ring(lane);
         }
         if (new_idx == UINT32_MAX) {
-            auto* cpp_lane_fallback = ada::internal::to_cpp(lane);
-            if (cpp_lane_fallback->ring_count > 1) {
-                uint32_t cur = cpp_lane_fallback->active_idx.load(std::memory_order_acquire);
-                new_idx = (cur + 1) % cpp_lane_fallback->ring_count;
+            if (cpp_lane->ring_count > 1) {
+                uint32_t cur = cpp_lane->active_idx.load(std::memory_order_acquire);
+                new_idx = (cur + 1) % cpp_lane->ring_count;
             } else {
                 bp_sample_lane(p, lane, 0);
+                if (metrics) {
+                    ada_thread_metrics_swap_end(&swap_token, swap_start, cpp_lane->ring_count);
+                }
                 return false; // pool truly has no alternative
             }
         }
     }
 
-    auto* cpp_lane = ada::internal::to_cpp(lane);
     uint32_t old_idx = cpp_lane->active_idx.exchange(new_idx, std::memory_order_acq_rel);
     if (out_old_idx) *out_old_idx = old_idx;
 
@@ -137,6 +147,11 @@ bool ring_pool_swap_active(RingPool* pool, uint32_t* out_old_idx) {
     (void)submitted;
 
     bp_sample_lane(p, lane, 0);
+    if (metrics) {
+        ada_thread_metrics_swap_end(&swap_token,
+                                    ada_metrics_now_ns(),
+                                    cpp_lane->ring_count);
+    }
     return true;
 }
 
@@ -157,6 +172,11 @@ bool ring_pool_handle_exhaustion(RingPool* pool) {
 
     bp_sample_lane(p, lane, 0);
     bp_mark_exhaustion(p, 0);
+
+    ada_thread_metrics_t* metrics = thread_lanes_get_metrics(p->lanes);
+    if (metrics) {
+        ada_thread_metrics_record_pool_exhaustion(metrics);
+    }
 
     // Take the oldest ring from the submit queue
     uint32_t oldest = lane_take_ring(lane);
@@ -182,6 +202,10 @@ bool ring_pool_handle_exhaustion(RingPool* pool) {
             bool dropped = ring_buffer_drop_oldest(rb);
             // Mark drop sequence even if ring was empty - this counts exhaustion attempts
             bp_mark_drop(p, dropped ? event_size : 0, 0);
+            if (metrics && dropped) {
+                ada_thread_metrics_record_event_dropped(metrics);
+                ada_thread_metrics_record_ring_full(metrics);
+            }
             ring_buffer_destroy(rb);
         }
     }

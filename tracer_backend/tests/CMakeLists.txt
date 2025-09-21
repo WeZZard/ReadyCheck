@@ -70,6 +70,7 @@ add_subdirectory(unit/agent)
 add_subdirectory(unit/atf_v4)
 add_subdirectory(unit/cli_parser)
 add_subdirectory(unit/selective_persistence)
+add_subdirectory(unit/metrics)
 
 # Integration tests
 add_subdirectory(integration/utils)
@@ -79,6 +80,7 @@ add_subdirectory(integration/timer)
 add_subdirectory(integration/agent)
 add_subdirectory(integration/atf_v4)
 add_subdirectory(integration/selective_persistence)
+add_subdirectory(integration/metrics)
 
 # Benchmark tests (when available)
 add_subdirectory(bench/utils)

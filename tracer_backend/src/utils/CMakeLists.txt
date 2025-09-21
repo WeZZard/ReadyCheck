@@ -4,6 +4,10 @@
 
 # Source files for utils library
 set(UTILS_SOURCES
+    ../metrics/thread_metrics.cpp
+    ../metrics/global_metrics.cpp
+    ../metrics/rate_calculator.cpp
+    ../metrics/snapshot.cpp
     shared_memory.c
     shm_directory.c
     ring_buffer.cpp
@@ -26,6 +30,7 @@ target_include_directories(tracer_utils
     PRIVATE
         # Private headers for internal use
         ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/../metrics
 )
 
 # Link dependencies

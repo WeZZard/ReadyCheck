@@ -19,6 +19,7 @@ extern "C" {
 // Thread-local storage for fast path access
 typedef struct ada_tls_state {
     ThreadLaneSet* lanes;           // Cached per-thread lanes (NULL = unregistered)
+    ada_thread_metrics_t* metrics;  // Cached metrics pointer (NULL before registration)
     _Atomic(uint32_t) reentrancy;   // Reentrancy counter
     uint32_t call_depth;            // Current call stack depth
     uint64_t thread_id;             // Platform thread ID
@@ -70,4 +71,3 @@ void ada_tls_thread_cleanup(void);
 #endif
 
 #endif // ADA_THREAD_H
-

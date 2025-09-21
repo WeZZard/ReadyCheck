@@ -6,6 +6,7 @@
 
 #include <tracer_backend/atf/atf_v4_writer.h>
 #include <tracer_backend/utils/tracer_types.h>
+#include <tracer_backend/metrics/global_metrics.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -95,6 +96,9 @@ void drain_thread_set_atf_writer(DrainThread* drain, AtfV4Writer* writer);
 
 // Retrieve attached ATF V4 writer
 AtfV4Writer* drain_thread_get_atf_writer(DrainThread* drain);
+
+// Access aggregated per-thread metrics (read-only view)
+const ada_global_metrics_t* drain_thread_get_thread_metrics_view(const DrainThread* drain);
 
 #ifdef __cplusplus
 }

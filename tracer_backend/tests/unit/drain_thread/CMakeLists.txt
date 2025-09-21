@@ -66,3 +66,25 @@ install(TARGETS
     test_per_thread_drain
     RUNTIME DESTINATION bin
 )
+# Drain thread metrics coverage test
+add_executable(test_drain_metrics
+    test_drain_metrics.cpp
+)
+target_link_libraries(test_drain_metrics
+    PRIVATE
+        test_main
+        GTest::gtest
+        GTest::gmock
+        tracer_drain_thread
+        tracer_utils
+        Threads::Threads
+)
+target_include_directories(test_drain_metrics
+    PRIVATE
+        ${CMAKE_SOURCE_DIR}/include
+        ${CMAKE_SOURCE_DIR}/src/drain_thread
+)
+gtest_discover_tests(test_drain_metrics
+    TEST_PREFIX drain_metrics_
+    PROPERTIES LABELS unit
+)

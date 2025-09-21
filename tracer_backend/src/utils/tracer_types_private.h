@@ -5,6 +5,7 @@
 // This header should only be included by implementation files and tests
 
 #include <tracer_backend/utils/tracer_types.h>
+#include <tracer_backend/metrics/thread_metrics.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdatomic.h>
@@ -57,12 +58,13 @@ struct ThreadLaneSet {
     uintptr_t thread_id;             // System thread ID
     uint32_t slot_index;             // Index in registry (0-63)
     _Atomic(bool) active;            // Thread still alive
-    
+
     // Per-thread lanes
     struct Lane index_lane;          // Index events (4 rings)
     struct Lane detail_lane;         // Detail events (2 rings)
-    
+
     // Thread-local metrics
+    ada_thread_metrics_t metrics;
     _Atomic(uint64_t) events_generated;
     _Atomic(uint64_t) last_event_timestamp;
 } __attribute__((aligned(CACHE_LINE_SIZE)));

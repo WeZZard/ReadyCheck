@@ -350,3 +350,24 @@ install(TARGETS
     test_thread_pools
     RUNTIME DESTINATION bin
 )
+# Thread registry accessor tests
+add_executable(test_thread_registry_accessors
+    test_thread_registry_accessors.cpp
+)
+target_link_libraries(test_thread_registry_accessors
+    PRIVATE
+        test_main
+        GTest::gtest
+        GTest::gmock
+        tracer_utils
+        Threads::Threads
+)
+target_include_directories(test_thread_registry_accessors
+    PRIVATE
+        ${CMAKE_SOURCE_DIR}/include
+        ${CMAKE_SOURCE_DIR}/src/utils
+)
+gtest_discover_tests(test_thread_registry_accessors
+    TEST_PREFIX thread_registry_accessors_
+    PROPERTIES LABELS unit
+)

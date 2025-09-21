@@ -73,12 +73,12 @@ ThreadLaneSet* thread_registry_register(ThreadRegistry* registry, uintptr_t thre
     auto* cpp_registry = reinterpret_cast<ada::internal::ThreadRegistry*>(registry);
     auto* cpp_lanes = cpp_registry->register_thread(thread_id);
     ThreadLaneSet* lanes = reinterpret_cast<ThreadLaneSet*>(cpp_lanes);
-    
+
     // Set TLS for fast path access
     if (lanes) {
         thread_registry_set_my_lanes(lanes);
     }
-    
+
     return lanes;
 }
 
@@ -104,6 +104,11 @@ ThreadLaneSet* thread_registry_get_my_lanes(void) {
 void thread_registry_set_my_lanes(ThreadLaneSet* lanes) {
     tls_my_lanes = lanes;
     ada::internal::tls_current_lanes = reinterpret_cast<ada::internal::ThreadLaneSet*>(lanes);
+    ada_tls_state_t* tls_state = ada_get_tls_state();
+    if (tls_state) {
+        tls_state->lanes = lanes;
+        tls_state->metrics = lanes ? thread_lanes_get_metrics(lanes) : NULL;
+    }
 }
 
 void thread_registry_unregister(ThreadLaneSet* lanes) {
@@ -476,7 +481,10 @@ size_t thread_registry_calculate_memory_size_with_capacity(uint32_t capacity) {
     size_t per_thread_meta = sizeof(ada::internal::LaneMemoryLayout) * 2;
     // Account for page alignment after lanes (~ worst case add one page)
     size_t align_slack = 4096;
-    return header + lanes + align_slack + (size_t)capacity * (per_thread_rings + per_thread_meta);
+    // Add extra buffer for alignment overhead during allocation
+    // Each ring buffer is page-aligned (4KB), so worst case we waste up to 4KB per ring
+    size_t per_thread_alignment_overhead = (size_t)(RINGS_PER_INDEX_LANE + RINGS_PER_DETAIL_LANE) * 4096;
+    return header + lanes + align_slack + (size_t)capacity * (per_thread_rings + per_thread_meta + per_thread_alignment_overhead);
 }
 
 // Lane accessor functions for opaque ThreadLaneSet
@@ -490,6 +498,24 @@ Lane* thread_lanes_get_detail_lane(ThreadLaneSet* lanes) {
     if (!lanes) return nullptr;
     auto* cpp_lanes = reinterpret_cast<ada::internal::ThreadLaneSet*>(lanes);
     return reinterpret_cast<Lane*>(&cpp_lanes->detail_lane);
+}
+
+ada_thread_metrics_t* thread_lanes_get_metrics(ThreadLaneSet* lanes) {
+    if (!lanes) return nullptr;
+    auto* cpp_lanes = reinterpret_cast<ada::internal::ThreadLaneSet*>(lanes);
+    return &cpp_lanes->metrics;
+}
+
+uint32_t thread_lanes_get_slot_index(ThreadLaneSet* lanes) {
+    if (!lanes) return 0;
+    auto* cpp_lanes = reinterpret_cast<ada::internal::ThreadLaneSet*>(lanes);
+    return cpp_lanes->slot_index;
+}
+
+uint64_t thread_lanes_get_thread_id(ThreadLaneSet* lanes) {
+    if (!lanes) return 0;
+    auto* cpp_lanes = reinterpret_cast<ada::internal::ThreadLaneSet*>(lanes);
+    return cpp_lanes->thread_id;
 }
 
 void thread_lanes_set_active(ThreadLaneSet* lanes, bool active) {

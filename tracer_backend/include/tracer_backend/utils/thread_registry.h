@@ -2,6 +2,7 @@
 #define THREAD_REGISTRY_H
 
 #include "tracer_types.h"
+#include <tracer_backend/metrics/thread_metrics.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -142,6 +143,9 @@ RingBufferHeader* thread_registry_get_ring_header_by_idx(ThreadRegistry* registr
 // Returns: pointer to the lane, or NULL if lanes is NULL
 Lane* thread_lanes_get_index_lane(ThreadLaneSet* lanes);
 Lane* thread_lanes_get_detail_lane(ThreadLaneSet* lanes);
+ada_thread_metrics_t* thread_lanes_get_metrics(ThreadLaneSet* lanes);
+uint32_t thread_lanes_get_slot_index(ThreadLaneSet* lanes);
+uint64_t thread_lanes_get_thread_id(ThreadLaneSet* lanes);
 
 // Set active status for a thread lane set
 // lanes: ThreadLaneSet pointer

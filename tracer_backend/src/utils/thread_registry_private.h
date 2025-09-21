@@ -11,6 +11,7 @@
 // Need private definitions for concrete implementation
 #include "tracer_types_private.h"
 #include <tracer_backend/ada/thread.h>
+#include <tracer_backend/metrics/thread_metrics.h>
 
 // Optional logging flag defined in C shim (thread_registry.cpp)
 extern bool needs_log_thread_registry_registry;
@@ -153,8 +154,9 @@ public:
     // Lanes with structured memory
     Lane index_lane;
     Lane detail_lane;
-    
+
     // Statistics
+    ada_thread_metrics_t metrics;
     std::atomic<uint64_t> events_generated{0};
     std::atomic<uint64_t> last_event_timestamp{0};
     
@@ -172,7 +174,9 @@ public:
         detail_lane.initialize(detail_memory, RINGS_PER_DETAIL_LANE, 256 * 1024, sizeof(DetailEvent), QUEUE_COUNT_DETAIL_LANE);
         index_lane.marked_event_seen.store(false, std::memory_order_relaxed);
         detail_lane.marked_event_seen.store(false, std::memory_order_relaxed);
-        
+
+        ada_thread_metrics_init(&metrics, tid, slot);
+
         if (needs_log_thread_registry_registry) printf("DEBUG: Setting active flag\n");
         active.store(true, std::memory_order_release);
         if (needs_log_thread_registry_registry) printf("DEBUG: ThreadLaneSet::initialize complete\n");
@@ -272,7 +276,7 @@ public:
             if (needs_log_thread_registry_registry) printf("DEBUG: Not accepting registrations\n");
             return nullptr;
         }
-        
+
         // Try to find existing registration (scan active slots)
         auto* thread_lanes = reinterpret_cast<ThreadLaneSet*>(reinterpret_cast<uint8_t*>(this) + lanes_off);
         for (uint32_t i = 0; i < capacity_; ++i) {
@@ -333,6 +337,9 @@ public:
             uint64_t idx_layout_off = alloc_from(segments[0].used, sizeof(LaneMemoryLayout), segments[0].size, CACHE_LINE_SIZE);
             if (idx_layout_off == UINT64_MAX) {
                 thread_count.fetch_sub(1, std::memory_order_acq_rel);
+                // Clear the bit from active_mask to free the slot
+                uint64_t bit = 1ull << slot;
+                active_mask.fetch_and(~bit, std::memory_order_acq_rel);
                 if (needs_log_thread_registry_registry) printf("DEBUG: Out of metadata memory while registering thread %lx (index layout)\n", thread_id);
                 return nullptr;
             }
@@ -342,6 +349,9 @@ public:
             uint64_t det_layout_off = alloc_from(segments[0].used, sizeof(LaneMemoryLayout), segments[0].size, CACHE_LINE_SIZE);
             if (det_layout_off == UINT64_MAX) {
                 thread_count.fetch_sub(1, std::memory_order_acq_rel);
+                // Clear the bit from active_mask to free the slot
+                uint64_t bit = 1ull << slot;
+                active_mask.fetch_and(~bit, std::memory_order_acq_rel);
                 if (needs_log_thread_registry_registry) printf("DEBUG: Out of metadata memory while registering thread %lx (detail layout)\n", thread_id);
                 return nullptr;
             }
@@ -353,6 +363,9 @@ public:
                 if (off == UINT64_MAX) {
                     // Out of ring memory
                     thread_count.fetch_sub(1, std::memory_order_acq_rel);
+                    // Clear the bit from active_mask to free the slot
+                    uint64_t bit = 1ull << slot;
+                    active_mask.fetch_and(~bit, std::memory_order_acq_rel);
                     if (needs_log_thread_registry_registry) printf("DEBUG: Out of index ring memory while registering thread %lx\n", thread_id);
                     return nullptr;
                 }
@@ -372,6 +385,9 @@ public:
                 uint64_t off = alloc_from(segments[0].used, 256 * 1024, segments[0].size, 4096);
                 if (off == UINT64_MAX) {
                     thread_count.fetch_sub(1, std::memory_order_acq_rel);
+                    // Clear the bit from active_mask to free the slot
+                    uint64_t bit = 1ull << slot;
+                    active_mask.fetch_and(~bit, std::memory_order_acq_rel);
                     if (needs_log_thread_registry_registry) printf("DEBUG: Out of detail ring memory while registering thread %lx\n", thread_id);
                     return nullptr;
                 }
@@ -399,6 +415,7 @@ public:
         } else {
             thread_lanes[slot].thread_id = thread_id;
             thread_lanes[slot].active.store(true, std::memory_order_release);
+            ada_thread_metrics_init(&thread_lanes[slot].metrics, thread_id, slot);
         }
         
         if (needs_log_thread_registry_registry) { printf("DEBUG: Returning thread_lanes[%u] at %p\n", slot, &thread_lanes[slot]); fflush(stdout); }

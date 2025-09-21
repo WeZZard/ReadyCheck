@@ -30,6 +30,7 @@ extern "C" {
 #include <tracer_backend/utils/thread_registry.h>
 // SHM directory mapping helpers (M1_E1_I8)
 #include <tracer_backend/utils/shm_directory.h>
+#include <tracer_backend/metrics/thread_metrics.h>
 }
 
 // Include C++ implementation headers
@@ -798,7 +799,13 @@ static void capture_index_event(AgentContext* ctx, HookData* hook,
     bool wrote_pt = false;
     // Attempt per-thread path if allowed by mode
     if (mode == REGISTRY_MODE_DUAL_WRITE || mode == REGISTRY_MODE_PER_THREAD_ONLY) {
+        ada_tls_state_t* ada_tls = ada_get_tls_state();
         ThreadLaneSet* lanes = ada_get_thread_lane();
+        ada_thread_metrics_t* metrics = ada_tls ? ada_tls->metrics : nullptr;
+        if (!metrics && lanes) {
+            metrics = thread_lanes_get_metrics(lanes);
+            if (ada_tls) ada_tls->metrics = metrics;
+        }
         if (lanes) {
             Lane* idx_lane = thread_lanes_get_index_lane(lanes);
             ::ThreadRegistry* reg = ada_get_global_registry();
@@ -809,6 +816,11 @@ static void capture_index_event(AgentContext* ctx, HookData* hook,
                     if (wrote_pt) {
                         g_debug("[Agent] Wrote index event (per-thread)\n");
                         ctx->increment_events_emitted();
+                        if (metrics) {
+                            ada_thread_metrics_record_event_written(metrics, sizeof(IndexEvent));
+                        }
+                    } else if (metrics) {
+                        ada_thread_metrics_record_ring_full(metrics);
                     }
                 }
             }
@@ -830,6 +842,21 @@ static void capture_index_event(AgentContext* ctx, HookData* hook,
     } else {
         wrote = wrote_pt;
     }
+    if (!wrote_pt) {
+        ada_tls_state_t* ada_tls = ada_get_tls_state();
+        ada_thread_metrics_t* metrics = ada_tls ? ada_tls->metrics : nullptr;
+        if (!metrics) {
+            ThreadLaneSet* fallback_lanes = ada_get_thread_lane();
+            if (fallback_lanes) {
+                metrics = thread_lanes_get_metrics(fallback_lanes);
+                if (ada_tls) ada_tls->metrics = metrics;
+            }
+        }
+        if (!wrote && metrics) {
+            ada_thread_metrics_record_event_dropped(metrics);
+        }
+    }
+
     if (wrote) {
         g_debug("[Agent] Wrote index event\n");
         ctx->increment_events_emitted();
@@ -909,7 +936,13 @@ static void capture_detail_event(AgentContext* ctx, HookData* hook,
     bool wrote = false;
     bool wrote_pt = false;
     if (mode == REGISTRY_MODE_DUAL_WRITE || mode == REGISTRY_MODE_PER_THREAD_ONLY) {
+        ada_tls_state_t* ada_tls = ada_get_tls_state();
         ThreadLaneSet* lanes = ada_get_thread_lane();
+        ada_thread_metrics_t* metrics = ada_tls ? ada_tls->metrics : nullptr;
+        if (!metrics && lanes) {
+            metrics = thread_lanes_get_metrics(lanes);
+            if (ada_tls) ada_tls->metrics = metrics;
+        }
         if (lanes) {
             Lane* det_lane = thread_lanes_get_detail_lane(lanes);
             ::ThreadRegistry* reg = ada_get_global_registry();
@@ -920,6 +953,11 @@ static void capture_detail_event(AgentContext* ctx, HookData* hook,
                     if (wrote_pt) {
                         g_debug("[Agent] Wrote detail event (per-thread)\n");
                         ctx->increment_events_emitted();
+                        if (metrics) {
+                            ada_thread_metrics_record_event_written(metrics, sizeof(DetailEvent));
+                        }
+                    } else if (metrics) {
+                        ada_thread_metrics_record_ring_full(metrics);
                     }
                 }
             }
@@ -938,6 +976,21 @@ static void capture_detail_event(AgentContext* ctx, HookData* hook,
     } else {
         wrote = wrote_pt;
     }
+    if (!wrote_pt) {
+        ada_tls_state_t* ada_tls = ada_get_tls_state();
+        ada_thread_metrics_t* metrics = ada_tls ? ada_tls->metrics : nullptr;
+        if (!metrics) {
+            ThreadLaneSet* fallback_lanes = ada_get_thread_lane();
+            if (fallback_lanes) {
+                metrics = thread_lanes_get_metrics(fallback_lanes);
+                if (ada_tls) ada_tls->metrics = metrics;
+            }
+        }
+        if (!wrote && metrics) {
+            ada_thread_metrics_record_event_dropped(metrics);
+        }
+    }
+
     if (wrote) {
         g_debug("[Agent] Wrote detail event\n");
         ctx->increment_events_emitted();

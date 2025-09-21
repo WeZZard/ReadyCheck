@@ -81,11 +81,13 @@ ThreadLaneSet* ada_register_current_thread(void) {
         // Out of slots or init failure; mark and return
         atomic_store_explicit(&g_tls_state.registered, true, memory_order_release);
         g_tls_state.lanes = NULL;
+        g_tls_state.metrics = NULL;
         return NULL;
     }
 
     // Initialize TLS state
     g_tls_state.lanes = lanes;
+    g_tls_state.metrics = thread_lanes_get_metrics(lanes);
     g_tls_state.thread_id = ada_get_thread_id_portable();
     g_tls_state.registration_time = ada_now_monotonic_ns();
     // Slot id is optional; not exposed via API, leave as 0
@@ -100,7 +102,11 @@ ThreadLaneSet* ada_register_current_thread(void) {
 ThreadLaneSet* ada_get_thread_lane(void) {
     ThreadLaneSet* lanes = g_tls_state.lanes;
     if (lanes) return lanes;
-    return ada_register_current_thread();
+    ThreadLaneSet* registered = ada_register_current_thread();
+    if (registered) {
+        g_tls_state.metrics = thread_lanes_get_metrics(registered);
+    }
+    return registered;
 }
 
 ada_reentrancy_guard_t ada_enter_trace(void) {

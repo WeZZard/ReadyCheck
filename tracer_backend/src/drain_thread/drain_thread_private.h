@@ -10,6 +10,7 @@
 #include <tracer_backend/drain_thread/drain_thread.h>
 #include <tracer_backend/utils/thread_registry.h>
 #include <tracer_backend/utils/ring_buffer.h>
+#include <tracer_backend/metrics/global_metrics.h>
 
 typedef struct {
     atomic_uint_fast64_t cycles_total;
@@ -171,6 +172,9 @@ struct DrainThread {
     // Per-thread drain iteration
     DrainIterator*      iterator;            // Drain iterator (allocated separately)
     bool                iterator_enabled;    // Whether per-thread drain is enabled
+
+    ada_global_metrics_t thread_metrics;
+    ada_thread_metrics_snapshot_t thread_metrics_buffer[MAX_THREADS];
 };
 
 #endif // DRAIN_THREAD_PRIVATE_H
