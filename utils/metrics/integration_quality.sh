@@ -311,12 +311,12 @@ build_all() {
         mkdir -p "$COVERAGE_DIR"
     fi
 
-    # Clean previous build artifacts (temporarily always clean to identify bottleneck)
-    # if [[ "$MODE" != "incremental" ]]; then
-    start_timer "Cargo Clean"
-    cargo clean
-    end_timer "Cargo Clean"
-    # fi
+    # Clean previous build artifacts
+    if [[ "$MODE" != "incremental" ]]; then
+        start_timer "Cargo Clean"
+        cargo clean
+        end_timer "Cargo Clean"
+    fi
 
     # Run build and capture output
     start_timer "Cargo Build"
@@ -789,7 +789,12 @@ check_incremental_coverage() {
     fi
 
     # Get list of changed production files (excluding test files)
-    local changed_files=$(git diff --name-only "$compare_branch" | grep -E '\.(c|cpp|h|rs|py)$' | \
+    # Use --cached to check only staged files when checking uncommitted changes
+    local diff_command="git diff --name-only"
+    if [[ "$compare_branch" == "HEAD" ]]; then
+        diff_command="git diff --cached --name-only"
+    fi
+    local changed_files=$($diff_command "$compare_branch" | grep -E '\.(c|cpp|h|rs|py)$' | \
                           grep -v -E '(tests?/|bench/|benchmark/|_test\.|_whitebox\.|test_|_test_support\.)' || true)
 
     if [[ -z "$changed_files" ]]; then

@@ -1,5 +1,5 @@
 //! Toolchain detection module for coverage tools
-//! 
+//!
 //! This module provides platform-aware detection of LLVM coverage tools:
 //! - Rust: Uses rustup's bundled LLVM tools
 //! - C/C++ on macOS: Uses Xcode's LLVM tools via xcrun
@@ -7,9 +7,9 @@
 //! - Python: Delegates to pytest-cov
 
 use anyhow::{Context, Result};
+use glob;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use glob;
 
 /// Represents the detected LLVM toolchain
 #[derive(Debug, Clone)]
@@ -21,10 +21,10 @@ pub struct LlvmToolchain {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ToolchainSource {
-    Rustup,      // Rust's bundled LLVM tools
-    Xcode,       // macOS Xcode Command Line Tools
-    System,      // System-installed LLVM
-    Homebrew,    // Homebrew-installed LLVM
+    Rustup,   // Rust's bundled LLVM tools
+    Xcode,    // macOS Xcode Command Line Tools
+    System,   // System-installed LLVM
+    Homebrew, // Homebrew-installed LLVM
 }
 
 impl std::fmt::Display for ToolchainSource {
@@ -41,11 +41,11 @@ impl std::fmt::Display for ToolchainSource {
 /// Detect the appropriate LLVM toolchain for Rust code
 pub fn detect_rust_toolchain() -> Result<LlvmToolchain> {
     println!("Detecting Rust LLVM toolchain...");
-    
+
     // Find rustup's LLVM tools
     let rustup_home = std::env::var("RUSTUP_HOME")
         .unwrap_or_else(|_| format!("{}/.rustup", std::env::var("HOME").unwrap()));
-    
+
     // Use the active toolchain (which should be stable per rust-toolchain.toml)
     let output = Command::new("rustup")
         .args(&["show", "active-toolchain"])
@@ -53,7 +53,9 @@ pub fn detect_rust_toolchain() -> Result<LlvmToolchain> {
         .context("Failed to run rustup")?;
 
     let toolchain = String::from_utf8_lossy(&output.stdout);
-    let toolchain_name = toolchain.split_whitespace().next()
+    let toolchain_name = toolchain
+        .split_whitespace()
+        .next()
         .context("Failed to parse rustup toolchain")?
         .to_string();
 
@@ -65,25 +67,40 @@ pub fn detect_rust_toolchain() -> Result<LlvmToolchain> {
 
     let components = String::from_utf8_lossy(&check_component.stdout);
     if !components.contains("llvm-tools-preview") && !components.contains("llvm-tools") {
-        println!("  Warning: llvm-tools-preview not installed for {}. Installing...", toolchain_name);
+        println!(
+            "  Warning: llvm-tools-preview not installed for {}. Installing...",
+            toolchain_name
+        );
         Command::new("rustup")
-            .args(&["component", "add", "llvm-tools-preview", "--toolchain", &toolchain_name])
+            .args(&[
+                "component",
+                "add",
+                "llvm-tools-preview",
+                "--toolchain",
+                &toolchain_name,
+            ])
             .status()
             .context("Failed to install llvm-tools-preview")?;
     }
-    
+
     // Look for LLVM tools in the toolchain
     let patterns = vec![
-        format!("{}/toolchains/{}/lib/rustlib/*/bin", rustup_home, toolchain_name),
-        format!("{}/toolchains/{}/lib/rustlib/*/llvm-tools-preview/bin", rustup_home, toolchain_name),
+        format!(
+            "{}/toolchains/{}/lib/rustlib/*/bin",
+            rustup_home, toolchain_name
+        ),
+        format!(
+            "{}/toolchains/{}/lib/rustlib/*/llvm-tools-preview/bin",
+            rustup_home, toolchain_name
+        ),
     ];
-    
+
     for pattern in patterns {
         if let Ok(entries) = glob::glob(&pattern) {
             for entry in entries.flatten() {
                 let profdata = entry.join("llvm-profdata");
                 let cov = entry.join("llvm-cov");
-                
+
                 if profdata.exists() && cov.exists() {
                     println!("  Found Rust LLVM tools at: {}", entry.display());
                     return Ok(LlvmToolchain {
@@ -95,7 +112,7 @@ pub fn detect_rust_toolchain() -> Result<LlvmToolchain> {
             }
         }
     }
-    
+
     anyhow::bail!(
         "Could not find Rust LLVM tools. Please run: rustup component add llvm-tools-preview"
     )
@@ -140,37 +157,37 @@ fn detect_xcode_toolchain() -> Result<LlvmToolchain> {
         .arg("-p")
         .output()
         .context("Failed to run xcode-select")?;
-    
+
     if !output.status.success() {
         anyhow::bail!("Xcode Command Line Tools not installed");
     }
-    
+
     // Find tools via xcrun
     let profdata_output = Command::new("xcrun")
         .args(&["--find", "llvm-profdata"])
         .output()
         .context("Failed to find llvm-profdata via xcrun")?;
-    
+
     let cov_output = Command::new("xcrun")
         .args(&["--find", "llvm-cov"])
         .output()
         .context("Failed to find llvm-cov via xcrun")?;
-    
+
     if profdata_output.status.success() && cov_output.status.success() {
         let profdata = PathBuf::from(String::from_utf8_lossy(&profdata_output.stdout).trim());
         let cov = PathBuf::from(String::from_utf8_lossy(&cov_output.stdout).trim());
-        
+
         println!("  Found Xcode LLVM tools:");
         println!("    llvm-profdata: {}", profdata.display());
         println!("    llvm-cov: {}", cov.display());
-        
+
         return Ok(LlvmToolchain {
             profdata,
             cov,
             source: ToolchainSource::Xcode,
         });
     }
-    
+
     anyhow::bail!("Xcode LLVM tools not found")
 }
 
@@ -184,15 +201,13 @@ fn detect_xcode_toolchain() -> Result<LlvmToolchain> {
 #[allow(dead_code)]
 fn detect_system_toolchain() -> Result<LlvmToolchain> {
     // Try to find in PATH
-    let profdata = which::which("llvm-profdata")
-        .context("llvm-profdata not found in PATH")?;
-    let cov = which::which("llvm-cov")
-        .context("llvm-cov not found in PATH")?;
-    
+    let profdata = which::which("llvm-profdata").context("llvm-profdata not found in PATH")?;
+    let cov = which::which("llvm-cov").context("llvm-cov not found in PATH")?;
+
     println!("  Found system LLVM tools:");
     println!("    llvm-profdata: {}", profdata.display());
     println!("    llvm-cov: {}", cov.display());
-    
+
     Ok(LlvmToolchain {
         profdata,
         cov,
@@ -204,19 +219,19 @@ fn detect_system_toolchain() -> Result<LlvmToolchain> {
 #[allow(dead_code)]
 fn detect_homebrew_toolchain() -> Result<LlvmToolchain> {
     let homebrew_paths = vec![
-        "/opt/homebrew/opt/llvm/bin",     // ARM64 Macs
-        "/usr/local/opt/llvm/bin",        // Intel Macs
+        "/opt/homebrew/opt/llvm/bin", // ARM64 Macs
+        "/usr/local/opt/llvm/bin",    // Intel Macs
     ];
-    
+
     for base_path in homebrew_paths {
         let profdata = PathBuf::from(base_path).join("llvm-profdata");
         let cov = PathBuf::from(base_path).join("llvm-cov");
-        
+
         if profdata.exists() && cov.exists() {
             println!("  Found Homebrew LLVM tools:");
             println!("    llvm-profdata: {}", profdata.display());
             println!("    llvm-cov: {}", cov.display());
-            
+
             return Ok(LlvmToolchain {
                 profdata,
                 cov,
@@ -224,7 +239,7 @@ fn detect_homebrew_toolchain() -> Result<LlvmToolchain> {
             });
         }
     }
-    
+
     anyhow::bail!("Homebrew LLVM tools not found")
 }
 
@@ -237,15 +252,17 @@ pub fn merge_profdata(
     if profraw_files.is_empty() {
         anyhow::bail!("No .profraw files to merge");
     }
-    
-    println!("  Merging {} .profraw files using {}",
-             profraw_files.len(), toolchain.source);
+
+    println!(
+        "  Merging {} .profraw files using {}",
+        profraw_files.len(),
+        toolchain.source
+    );
 
     let start = std::time::Instant::now();
 
     let mut cmd = Command::new(&toolchain.profdata);
-    cmd.arg("merge")
-       .arg("-sparse");
+    cmd.arg("merge").arg("-sparse");
 
     for file in profraw_files {
         cmd.arg(file);
@@ -253,17 +270,19 @@ pub fn merge_profdata(
 
     cmd.arg("-o").arg(output);
 
-    let output = cmd.output()
-        .context("Failed to run llvm-profdata merge")?;
+    let output = cmd.output().context("Failed to run llvm-profdata merge")?;
 
     let elapsed = start.elapsed();
-    println!("  [TIMING] llvm-profdata merge completed in {:.2}s", elapsed.as_secs_f32());
-    
+    println!(
+        "  [TIMING] llvm-profdata merge completed in {:.2}s",
+        elapsed.as_secs_f32()
+    );
+
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         anyhow::bail!("llvm-profdata merge failed: {}", stderr);
     }
-    
+
     Ok(())
 }
 
@@ -278,15 +297,18 @@ pub fn export_lcov(
         anyhow::bail!("No binaries to export coverage for");
     }
 
-    println!("  Exporting LCOV with coverage data using {} ({} binaries)",
-             toolchain.source, binaries.len());
+    println!(
+        "  Exporting LCOV with coverage data using {} ({} binaries)",
+        toolchain.source,
+        binaries.len()
+    );
 
     let start = std::time::Instant::now();
 
     let mut cmd = Command::new(&toolchain.cov);
     cmd.arg("export")
-       .arg("-format=lcov")
-       .arg(format!("-instr-profile={}", profdata.display()));
+        .arg("-format=lcov")
+        .arg(format!("-instr-profile={}", profdata.display()));
 
     // Add branch coverage summary flag for Rust toolchain
     if toolchain.source == ToolchainSource::Rustup {
@@ -303,7 +325,8 @@ pub fn export_lcov(
 
     // The first binary is passed as the main executable
     // Additional binaries/objects are passed with --object flags
-    let (first, rest) = binaries.split_first()
+    let (first, rest) = binaries
+        .split_first()
         .ok_or_else(|| anyhow::anyhow!("No binaries provided"))?;
 
     // Add the first binary as the main argument
@@ -314,11 +337,13 @@ pub fn export_lcov(
         cmd.arg("--object").arg(binary);
     }
 
-    let output_data = cmd.output()
-        .context("Failed to run llvm-cov export")?;
+    let output_data = cmd.output().context("Failed to run llvm-cov export")?;
 
     let elapsed = start.elapsed();
-    println!("  [TIMING] llvm-cov export completed in {:.2}s", elapsed.as_secs_f32());
+    println!(
+        "  [TIMING] llvm-cov export completed in {:.2}s",
+        elapsed.as_secs_f32()
+    );
 
     if !output_data.status.success() {
         let stderr = String::from_utf8_lossy(&output_data.stderr);
@@ -326,8 +351,7 @@ pub fn export_lcov(
     }
 
     // Write LCOV data to file
-    std::fs::write(output, &output_data.stdout)
-        .context("Failed to write LCOV file")?;
+    std::fs::write(output, &output_data.stdout).context("Failed to write LCOV file")?;
 
     // Post-process to ensure proper LCOV format with function and branch data
     enhance_lcov_with_coverage_stats(output)?;
@@ -338,26 +362,23 @@ pub fn export_lcov(
 /// Merge multiple LCOV files into one
 pub fn merge_lcov_files(lcov_files: &[PathBuf], output: &Path) -> Result<()> {
     // Filter to only existing files
-    let existing_files: Vec<&PathBuf> = lcov_files.iter()
-        .filter(|f| f.exists())
-        .collect();
-    
+    let existing_files: Vec<&PathBuf> = lcov_files.iter().filter(|f| f.exists()).collect();
+
     if existing_files.is_empty() {
         anyhow::bail!("No LCOV files to merge");
     }
-    
+
     if existing_files.len() == 1 {
         // Just copy the single file
-        std::fs::copy(existing_files[0], output)
-            .context("Failed to copy LCOV file")?;
+        std::fs::copy(existing_files[0], output).context("Failed to copy LCOV file")?;
         println!("  Single LCOV file copied to: {}", output.display());
         // Sanitize counts to ensure integers (avoid scientific notation edge cases)
         sanitize_lcov_counts(output)?;
         return Ok(());
     }
-    
+
     println!("  Merging {} LCOV files...", existing_files.len());
-    
+
     // Use lcov tool to merge with error ignoring for compatibility
     let mut cmd = Command::new("lcov");
 
@@ -366,26 +387,25 @@ pub fn merge_lcov_files(lcov_files: &[PathBuf], output: &Path) -> Result<()> {
 
     // Ignore common errors that don't affect coverage data
     cmd.arg("--ignore-errors")
-       .arg("inconsistent")
-       .arg("--ignore-errors")
-       .arg("corrupt")
-       .arg("--ignore-errors")
-       .arg("unsupported");
-    
+        .arg("inconsistent")
+        .arg("--ignore-errors")
+        .arg("corrupt")
+        .arg("--ignore-errors")
+        .arg("unsupported");
+
     for file in existing_files {
         cmd.arg("--add-tracefile").arg(file);
     }
-    
+
     cmd.arg("--output-file").arg(output);
-    
-    let output_data = cmd.output()
-        .context("Failed to run lcov merge")?;
-    
+
+    let output_data = cmd.output().context("Failed to run lcov merge")?;
+
     if !output_data.status.success() {
         let stderr = String::from_utf8_lossy(&output_data.stderr);
         anyhow::bail!("lcov merge failed: {}", stderr);
     }
-    
+
     // Sanitize counts to ensure integers (avoid scientific notation from lcov merge)
     sanitize_lcov_counts(output)?;
     println!("  Merged LCOV written to: {}", output.display());
@@ -443,7 +463,8 @@ fn enhance_lcov_with_coverage_stats(path: &Path) -> Result<()> {
                 // Add function summary
                 if !function_data.is_empty() {
                     let functions_found = function_data.len() as u64;
-                    let functions_hit = function_data.iter().filter(|(_, hits)| *hits > 0).count() as u64;
+                    let functions_hit =
+                        function_data.iter().filter(|(_, hits)| *hits > 0).count() as u64;
                     enhanced.push_str(&format!("FNF:{}\n", functions_found));
                     enhanced.push_str(&format!("FNH:{}\n", functions_hit));
                 }
@@ -451,7 +472,8 @@ fn enhance_lcov_with_coverage_stats(path: &Path) -> Result<()> {
                 // Add branch summary
                 if !branch_data.is_empty() {
                     let branches_found = branch_data.len() as u64;
-                    let branches_hit = branch_data.iter().filter(|(_, taken)| *taken > 0).count() as u64;
+                    let branches_hit =
+                        branch_data.iter().filter(|(_, taken)| *taken > 0).count() as u64;
                     enhanced.push_str(&format!("BRF:{}\n", branches_found));
                     enhanced.push_str(&format!("BRH:{}\n", branches_hit));
                 }
@@ -506,7 +528,11 @@ fn enhance_lcov_with_coverage_stats(path: &Path) -> Result<()> {
             // Format: BRDA:<line>,<block>,<branch>,<taken>
             let parts: Vec<&str> = branch_info.split(',').collect();
             if parts.len() >= 4 {
-                let taken = if parts[3] == "-" { 0 } else { parts[3].parse::<u64>().unwrap_or(0) };
+                let taken = if parts[3] == "-" {
+                    0
+                } else {
+                    parts[3].parse::<u64>().unwrap_or(0)
+                };
                 branch_data.push((1, taken));
             }
             enhanced.push_str(line);
@@ -527,12 +553,15 @@ fn enhance_lcov_with_coverage_stats(path: &Path) -> Result<()> {
             enhanced.push('\n');
         }
         // Skip existing summary lines (we'll regenerate them)
-        else if line.starts_with("FNF:") || line.starts_with("FNH:") ||
-                line.starts_with("BRF:") || line.starts_with("BRH:") ||
-                line.starts_with("LF:") || line.starts_with("LH:") {
+        else if line.starts_with("FNF:")
+            || line.starts_with("FNH:")
+            || line.starts_with("BRF:")
+            || line.starts_with("BRH:")
+            || line.starts_with("LF:")
+            || line.starts_with("LH:")
+        {
             // Skip - we'll add our own summaries
-        }
-        else {
+        } else {
             enhanced.push_str(line);
             enhanced.push('\n');
         }

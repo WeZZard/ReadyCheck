@@ -1,5 +1,5 @@
 //! Tracer CLI - Rust implementation of the tracer POC
-//! 
+//!
 //! This demonstrates Cargo orchestrating the build and providing
 //! the main entry point for the tracer system.
 
@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
-use tracer_backend::{TracerController, ffi::ProcessState};
+use tracer_backend::{ffi::ProcessState, TracerController};
 
 static RUNNING: AtomicBool = AtomicBool::new(true);
 
@@ -29,16 +29,16 @@ fn print_usage(program: &str) {
 
 fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
-    
+
     if args.len() < 3 {
         print_usage(&args[0]);
         std::process::exit(1);
     }
-    
+
     let mode = &args[1];
     let target = &args[2];
     let mut output_dir = PathBuf::from("./traces");
-    
+
     // Parse options
     let mut i = 3;
     let mut target_args = Vec::new();
@@ -51,7 +51,7 @@ fn main() -> Result<()> {
             i += 1;
         }
     }
-    
+
     // Setup Ctrl+C handler
     let running = Arc::new(AtomicBool::new(true));
     let r = running.clone();
@@ -60,41 +60,42 @@ fn main() -> Result<()> {
         r.store(false, Ordering::SeqCst);
         RUNNING.store(false, Ordering::SeqCst);
     })?;
-    
+
     println!("=== ADA Tracer (Rust) ===");
     println!("Output directory: {}", output_dir.display());
-    
+
     // Create output directory
     std::fs::create_dir_all(&output_dir)?;
-    
+
     // Create controller
     let mut controller = TracerController::new(&output_dir)?;
     println!("Controller created successfully");
-    
+
     let pid = match mode.as_str() {
         "spawn" => {
             println!("Spawning process: {}", target);
-            
+
             // Build argv - first arg should be the program name
             let mut spawn_args = vec![target.clone()];
             spawn_args.extend(target_args);
-            
+
             let pid = controller.spawn_suspended(target, &spawn_args)?;
             println!("Process spawned with PID: {} (suspended)", pid);
-            
+
             // Attach to spawned process
             println!("Attaching to PID {}...", pid);
             controller.attach(pid)?;
-            
+
             pid
         }
         "attach" => {
-            let pid: u32 = target.parse()
+            let pid: u32 = target
+                .parse()
                 .map_err(|_| anyhow::anyhow!("Invalid PID: {}", target))?;
-            
+
             println!("Attaching to PID {}...", pid);
             controller.attach(pid)?;
-            
+
             pid
         }
         _ => {
@@ -103,30 +104,30 @@ fn main() -> Result<()> {
             std::process::exit(1);
         }
     };
-    
+
     println!("Successfully attached to PID {}", pid);
-    
+
     // Install hooks
     println!("Installing hooks...");
     controller.install_hooks()?;
     println!("Hooks installed successfully");
-    
+
     // Resume process if spawned
     if mode == "spawn" {
         println!("Resuming process...");
         controller.resume()?;
         println!("Process resumed");
     }
-    
+
     // Monitor loop
     println!("\n=== Tracing Active ===");
     println!("Press Ctrl+C to stop\n");
-    
+
     let mut tick = 0;
     while running.load(Ordering::SeqCst) {
         thread::sleep(Duration::from_secs(1));
         tick += 1;
-        
+
         // Print statistics every 5 seconds
         if tick % 5 == 0 {
             let stats = controller.get_stats();
@@ -138,7 +139,7 @@ fn main() -> Result<()> {
                 stats.drain_cycles
             );
         }
-        
+
         // Check if process is still running
         let state = controller.get_state();
         if state != ProcessState::Running && state != ProcessState::Attached {
@@ -146,11 +147,11 @@ fn main() -> Result<()> {
             break;
         }
     }
-    
+
     // Detach and cleanup
     println!("\nDetaching from process...");
     controller.detach()?;
-    
+
     // Print final statistics
     let final_stats = controller.get_stats();
     println!("\n=== Final Statistics ===");
@@ -158,7 +159,7 @@ fn main() -> Result<()> {
     println!("Events dropped:  {}", final_stats.events_dropped);
     println!("Bytes written:   {}", final_stats.bytes_written);
     println!("Drain cycles:    {}", final_stats.drain_cycles);
-    
+
     println!("\nTracer completed successfully");
     Ok(())
 }

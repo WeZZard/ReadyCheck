@@ -1,34 +1,34 @@
 //! # Coverage Helper for ADA Project
-//! 
+//!
 //! This tool provides unified coverage collection for Rust, C/C++, and Python code
 //! using LLVM coverage tools that come with Rust or cargo-llvm-cov.
-//! 
+//!
 //! ## How It Works
-//! 
+//!
 //! Both Rust and C/C++ use the same LLVM coverage infrastructure:
 //! - **Compile flags**: `-fprofile-instr-generate -fcoverage-mapping`
 //! - **Output format**: `.profraw` files (raw profile data)
 //! - **Processing**: `llvm-profdata` merges `.profraw` → `.profdata`
 //! - **Reporting**: `llvm-cov` generates reports from `.profdata`
-//! 
+//!
 //! ## Usage Examples
-//! 
+//!
 //! ```bash
 //! # Clean old coverage data
 //! coverage_helper clean
-//! 
+//!
 //! # Run full coverage workflow
 //! coverage_helper full --format lcov
-//! 
+//!
 //! # Or step by step:
 //! coverage_helper clean
 //! # ... run tests with LLVM_PROFILE_FILE set ...
 //! coverage_helper collect
 //! coverage_helper report --format html
 //! ```
-//! 
+//!
 //! ## C/C++ Coverage Setup
-//! 
+//!
 //! In CMakeLists.txt:
 //! ```cmake
 //! if(ENABLE_COVERAGE)
@@ -36,28 +36,28 @@
 //!     add_link_options(-fprofile-instr-generate -fcoverage-mapping)
 //! endif()
 //! ```
-//! 
+//!
 //! Then build with: `cmake -B build -DENABLE_COVERAGE=ON`
-//! 
+//!
 //! ## Environment Variables
-//! 
+//!
 //! - `LLVM_PROFILE_FILE`: Where to write .profraw files (e.g., "target/coverage/%p-%m.profraw")
 //! - `CARGO_FEATURE_COVERAGE`: Set to "1" to enable coverage in Cargo builds
 //! - `RUSTFLAGS`: Should include "-C instrument-coverage" for Rust coverage
-//! 
+//!
 //! ## Tool Discovery
-//! 
+//!
 //! The helper automatically finds LLVM tools in these locations:
 //! 1. System PATH
 //! 2. Homebrew LLVM: `/opt/homebrew/opt/llvm/bin/` (macOS ARM64)
 //! 3. cargo-llvm-cov bundled tools (via `cargo llvm-cov show-env`)
-//! 
+//!
 //! ## Troubleshooting
-//! 
+//!
 //! If "llvm-profdata not found":
 //! - Install LLVM: `brew install llvm` (macOS) or `apt install llvm` (Linux)
 //! - Or install cargo-llvm-cov: `cargo install cargo-llvm-cov`
-//! 
+//!
 //! If no coverage data generated:
 //! - Ensure code was compiled with coverage flags
 //! - Check LLVM_PROFILE_FILE is set correctly
@@ -71,8 +71,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use walkdir::WalkDir;
 
-mod toolchains;
 mod dashboard;
+mod toolchains;
 
 #[derive(Parser)]
 #[command(name = "coverage_helper")]
@@ -104,7 +104,7 @@ enum Commands {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
-    
+
     match cli.command {
         Commands::Clean => clean_coverage(),
         Commands::Collect => collect_coverage(),
@@ -116,21 +116,36 @@ fn main() -> Result<()> {
 
             let clean_start = std::time::Instant::now();
             clean_coverage()?;
-            println!("[TIMING] Clean completed in {:.2}s", clean_start.elapsed().as_secs_f32());
+            println!(
+                "[TIMING] Clean completed in {:.2}s",
+                clean_start.elapsed().as_secs_f32()
+            );
 
             let test_start = std::time::Instant::now();
             run_tests_with_coverage()?;
-            println!("[TIMING] Tests with coverage completed in {:.2}s", test_start.elapsed().as_secs_f32());
+            println!(
+                "[TIMING] Tests with coverage completed in {:.2}s",
+                test_start.elapsed().as_secs_f32()
+            );
 
             let collect_start = std::time::Instant::now();
             collect_coverage()?;
-            println!("[TIMING] Coverage collection completed in {:.2}s", collect_start.elapsed().as_secs_f32());
+            println!(
+                "[TIMING] Coverage collection completed in {:.2}s",
+                collect_start.elapsed().as_secs_f32()
+            );
 
             let report_start = std::time::Instant::now();
             generate_report(&format)?;
-            println!("[TIMING] Report generation completed in {:.2}s", report_start.elapsed().as_secs_f32());
+            println!(
+                "[TIMING] Report generation completed in {:.2}s",
+                report_start.elapsed().as_secs_f32()
+            );
 
-            println!("[TIMING] Total full coverage workflow: {:.2}s", start.elapsed().as_secs_f32());
+            println!(
+                "[TIMING] Total full coverage workflow: {:.2}s",
+                start.elapsed().as_secs_f32()
+            );
 
             Ok(())
         }
@@ -142,76 +157,93 @@ fn get_workspace_root() -> Result<PathBuf> {
         .args(&["locate-project", "--workspace", "--message-format=plain"])
         .output()
         .context("Failed to locate workspace root")?;
-    
+
     let cargo_toml = PathBuf::from(String::from_utf8_lossy(&output.stdout).trim());
     Ok(cargo_toml.parent().unwrap().to_path_buf())
 }
 
 fn clean_coverage() -> Result<()> {
     println!("Cleaning coverage data...");
-    
+
     let workspace = get_workspace_root()?;
     let coverage_dir = workspace.join("target").join("coverage");
-    
+
     if coverage_dir.exists() {
-        fs::remove_dir_all(&coverage_dir)
-            .context("Failed to remove coverage directory")?;
+        fs::remove_dir_all(&coverage_dir).context("Failed to remove coverage directory")?;
     }
-    
-    fs::create_dir_all(&coverage_dir)
-        .context("Failed to create coverage directory")?;
-    
+
+    fs::create_dir_all(&coverage_dir).context("Failed to create coverage directory")?;
+
     // Clean C/C++ coverage files
     for entry in WalkDir::new(workspace.join("target"))
         .into_iter()
         .filter_map(|e| e.ok())
     {
         let path = entry.path();
-        if path.extension().map_or(false, |ext| ext == "profraw" || ext == "profdata" || ext == "gcda" || ext == "gcno") {
+        if path.extension().map_or(false, |ext| {
+            ext == "profraw" || ext == "profdata" || ext == "gcda" || ext == "gcno"
+        }) {
             fs::remove_file(path).ok();
         }
     }
-    
+
     println!("Coverage data cleaned.");
     Ok(())
 }
 
 fn run_tests_with_coverage() -> Result<()> {
     println!("Running tests with coverage enabled...");
-    
+
     let workspace = get_workspace_root()?;
-    
+
     // Set environment variables for coverage
     env::set_var("CARGO_FEATURE_COVERAGE", "1");
     env::set_var("RUSTFLAGS", "-C instrument-coverage");
-    env::set_var("LLVM_PROFILE_FILE", workspace.join("target/coverage/prof-%p-%m.profraw").to_str().unwrap());
-    
+    env::set_var(
+        "LLVM_PROFILE_FILE",
+        workspace
+            .join("target/coverage/prof-%p-%m.profraw")
+            .to_str()
+            .unwrap(),
+    );
+
     // Run Rust and C/C++ tests with coverage
     let status = Command::new("cargo")
-        .args(&["test", "--all", "--features", "tracer_backend/coverage,query_engine/coverage"])
+        .args(&[
+            "test",
+            "--all",
+            "--features",
+            "tracer_backend/coverage,query_engine/coverage",
+        ])
         .env("CARGO_FEATURE_COVERAGE", "1")
         .status()
         .context("Failed to run tests with coverage")?;
-    
+
     if !status.success() {
         anyhow::bail!("Tests failed");
     }
-    
+
     // Run Python tests with coverage if query_engine has Python tests
     let query_engine_dir = workspace.join("query_engine");
     if query_engine_dir.join("tests").exists() {
         println!("Running Python tests with coverage...");
-        
+
         let status = Command::new("python")
-            .args(&["-m", "pytest", "--cov=query_engine", "--cov-branch", "--cov-report=lcov:target/coverage/python.lcov"])
+            .args(&[
+                "-m",
+                "pytest",
+                "--cov=query_engine",
+                "--cov-branch",
+                "--cov-report=lcov:target/coverage/python.lcov",
+            ])
             .current_dir(&query_engine_dir)
             .status();
-        
+
         if let Err(e) = status {
             eprintln!("Warning: Failed to run Python tests: {}", e);
         }
     }
-    
+
     println!("Tests completed.");
     Ok(())
 }
@@ -265,49 +297,56 @@ fn collect_coverage() -> Result<()> {
 /// Collect Python coverage using pytest-cov
 fn collect_python_coverage(workspace: &Path, output_lcov: &Path) -> Result<()> {
     println!("\nCollecting Python coverage...");
-    
+
     // Check which Python components exist
     let mut components_to_test = vec![];
-    
+
     let query_engine_dir = workspace.join("query_engine");
     if query_engine_dir.exists() && query_engine_dir.join("pyproject.toml").exists() {
         components_to_test.push(("query_engine", query_engine_dir));
     }
-    
+
     let mcp_server_dir = workspace.join("mcp_server");
     if mcp_server_dir.exists() && mcp_server_dir.join("pyproject.toml").exists() {
         components_to_test.push(("mcp_server", mcp_server_dir));
     }
-    
+
     if components_to_test.is_empty() {
         println!("  No Python components found");
         return Ok(());
     }
-    
+
     let mut all_lcov_data = String::new();
-    
+
     for (name, dir) in components_to_test {
         println!("  Testing Python component: {}", name);
-        
+
         // Create a temporary directory for this component's coverage
-        let temp_coverage_file = workspace.join("target").join("coverage").join(format!("{}_coverage.xml", name));
-        
+        let temp_coverage_file = workspace
+            .join("target")
+            .join("coverage")
+            .join(format!("{}_coverage.xml", name));
+
         // Run pytest with coverage for this component (including branch coverage)
         let output = Command::new("python3")
             .args(&[
-                "-m", "pytest",
-                "--cov", name,
+                "-m",
+                "pytest",
+                "--cov",
+                name,
                 "--cov-branch",
-                "--cov-report", &format!("xml:{}", temp_coverage_file.display()),
-                "--cov-report", "term",
+                "--cov-report",
+                &format!("xml:{}", temp_coverage_file.display()),
+                "--cov-report",
+                "term",
             ])
             .current_dir(&dir)
             .output();
-        
+
         match output {
             Ok(result) if result.status.success() => {
                 println!("    Tests passed for {}", name);
-                
+
                 // Convert XML to LCOV if the coverage file was created
                 if temp_coverage_file.exists() {
                     if let Ok(lcov_data) = convert_xml_to_lcov(&temp_coverage_file, &dir) {
@@ -331,7 +370,7 @@ fn collect_python_coverage(workspace: &Path, output_lcov: &Path) -> Result<()> {
             }
         }
     }
-    
+
     // Write combined LCOV data
     if !all_lcov_data.is_empty() {
         fs::write(output_lcov, all_lcov_data)?;
@@ -339,7 +378,7 @@ fn collect_python_coverage(workspace: &Path, output_lcov: &Path) -> Result<()> {
     } else {
         println!("  No Python coverage data collected");
     }
-    
+
     Ok(())
 }
 
@@ -380,14 +419,14 @@ if __name__ == '__main__':
     base_dir = sys.argv[2]
     print(convert_xml_to_lcov(xml_path, base_dir))
 "#;
-    
+
     let output = Command::new("python3")
         .arg("-c")
         .arg(python_script)
         .arg(xml_file)
         .arg(base_dir)
         .output()?;
-    
+
     if output.status.success() {
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
     } else {
@@ -415,7 +454,11 @@ if __name__ == '__main__':
 /// using it would require running tests twice (once for Rust via cargo-llvm-cov,
 /// once for C++ via cargo test), which is inefficient and could lead to
 /// inconsistent results.
-fn collect_unified_coverage(workspace: &Path, coverage_dir: &Path, output_lcov: &Path) -> Result<()> {
+fn collect_unified_coverage(
+    workspace: &Path,
+    coverage_dir: &Path,
+    output_lcov: &Path,
+) -> Result<()> {
     println!("\nCollecting unified Rust + C++ coverage...");
 
     // Find ALL .profraw files from the unified test run
@@ -434,7 +477,10 @@ fn collect_unified_coverage(workspace: &Path, coverage_dir: &Path, output_lcov: 
         return Ok(());
     }
 
-    println!("  Found {} profraw files from unified test run", profraw_files.len());
+    println!(
+        "  Found {} profraw files from unified test run",
+        profraw_files.len()
+    );
 
     // Use Rust toolchain (works for both Rust and C++ with LLVM coverage)
     let toolchain = toolchains::detect_rust_toolchain()?;
@@ -452,26 +498,40 @@ fn collect_unified_coverage(workspace: &Path, coverage_dir: &Path, output_lcov: 
         .filter_map(|e| e.ok())
     {
         let path = entry.path();
-        if path.is_file() && path.to_str().map_or(false, |s| s.contains("/deps/") && !s.contains(".")) {
+        if path.is_file()
+            && path
+                .to_str()
+                .map_or(false, |s| s.contains("/deps/") && !s.contains("."))
+        {
             test_binaries.push(path.to_path_buf());
         }
     }
 
     // Find C++ test binaries in the predictable location
-    let profile = if workspace.join("target/release/tracer_backend/test").exists() {
+    let profile = if workspace
+        .join("target/release/tracer_backend/test")
+        .exists()
+    {
         "release"
     } else {
         "debug"
     };
 
-    let cpp_test_dir = workspace.join("target").join(profile).join("tracer_backend").join("test");
+    let cpp_test_dir = workspace
+        .join("target")
+        .join(profile)
+        .join("tracer_backend")
+        .join("test");
     if cpp_test_dir.exists() {
         if let Ok(entries) = fs::read_dir(&cpp_test_dir) {
             for entry in entries.filter_map(|e| e.ok()) {
                 let path = entry.path();
-                if path.is_file() && path.file_name()
-                    .and_then(|n| n.to_str())
-                    .map_or(false, |n| n.starts_with("test_")) {
+                if path.is_file()
+                    && path
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .map_or(false, |n| n.starts_with("test_"))
+                {
                     test_binaries.push(path);
                 }
             }
@@ -486,7 +546,11 @@ fn collect_unified_coverage(workspace: &Path, coverage_dir: &Path, output_lcov: 
 
     // The tracer_backend build.rs copies all libraries to a predictable location:
     // target/{profile}/tracer_backend/lib/
-    let cpp_lib_dir = workspace.join("target").join(profile).join("tracer_backend").join("lib");
+    let cpp_lib_dir = workspace
+        .join("target")
+        .join(profile)
+        .join("tracer_backend")
+        .join("lib");
     if cpp_lib_dir.exists() {
         if let Ok(entries) = fs::read_dir(&cpp_lib_dir) {
             for entry in entries.filter_map(|e| e.ok()) {
@@ -507,7 +571,9 @@ fn collect_unified_coverage(workspace: &Path, coverage_dir: &Path, output_lcov: 
         let mut tracer_backend_dirs: Vec<_> = fs::read_dir(&build_pattern)?
             .filter_map(|entry| entry.ok())
             .filter(|entry| {
-                entry.file_name().to_str()
+                entry
+                    .file_name()
+                    .to_str()
                     .map_or(false, |name| name.starts_with("tracer_backend-"))
             })
             .collect();
@@ -537,13 +603,19 @@ fn collect_unified_coverage(workspace: &Path, coverage_dir: &Path, output_lcov: 
     }
 
     if !cpp_artifacts.is_empty() {
-        println!("  Found {} C++ artifacts (libraries/objects) for source mapping", cpp_artifacts.len());
+        println!(
+            "  Found {} C++ artifacts (libraries/objects) for source mapping",
+            cpp_artifacts.len()
+        );
         // Add C++ artifacts to the binaries list for llvm-cov
         test_binaries.extend(cpp_artifacts);
     }
 
     if !test_binaries.is_empty() {
-        println!("  Total {} binaries/artifacts for coverage mapping", test_binaries.len());
+        println!(
+            "  Total {} binaries/artifacts for coverage mapping",
+            test_binaries.len()
+        );
         // Export to LCOV format with all binaries and artifacts
         toolchains::export_lcov(&toolchain, &test_binaries, &profdata_path, output_lcov)?;
         println!("  Unified coverage saved to: {}", output_lcov.display());
@@ -559,36 +631,36 @@ fn collect_unified_coverage(workspace: &Path, coverage_dir: &Path, output_lcov: 
 
 fn generate_report(format: &str) -> Result<()> {
     println!("Generating {} coverage report...", format);
-    
+
     let workspace = get_workspace_root()?;
     let coverage_dir = workspace.join("target").join("coverage");
-    
+
     match format {
         "lcov" => {
             // Merge all lcov files
             let mut lcov_files = vec![];
-            
+
             for entry in ["rust.lcov", "cpp.lcov", "python.lcov"] {
                 let path = coverage_dir.join(entry);
                 if path.exists() {
                     lcov_files.push(path);
                 }
             }
-            
+
             if lcov_files.is_empty() {
                 println!("No coverage data to report.");
                 return Ok(());
             }
-            
+
             let merged_lcov = coverage_dir.join("coverage.lcov");
-            
+
             // Merge lcov files
             let mut merge_cmd = Command::new("lcov");
             for file in &lcov_files {
                 merge_cmd.arg("-a").arg(file);
             }
             merge_cmd.arg("-o").arg(&merged_lcov);
-            
+
             let status = merge_cmd.status();
             if status.is_err() {
                 // Fallback: just concatenate files
@@ -598,26 +670,29 @@ fn generate_report(format: &str) -> Result<()> {
                 }
                 fs::write(&merged_lcov, merged_content)?;
             }
-            
+
             println!("Coverage report saved to: {}", merged_lcov.display());
-            
+
             // Calculate total coverage
             calculate_coverage_percentage(&merged_lcov)?;
         }
         "html" => {
             let report_dir = workspace.join("target").join("coverage_report");
             let merged_lcov = report_dir.join("merged.lcov");
-            
+
             // First ensure we have merged LCOV
             if !merged_lcov.exists() {
                 println!("No merged LCOV found. Running collection first...");
                 collect_coverage()?;
             }
-            
+
             // Generate dashboard
             if merged_lcov.exists() {
                 dashboard::generate_dashboard(&workspace, &report_dir, &merged_lcov)?;
-                println!("HTML dashboard saved to: {}/index.html", report_dir.display());
+                println!(
+                    "HTML dashboard saved to: {}/index.html",
+                    report_dir.display()
+                );
             } else {
                 println!("No coverage data available for HTML report");
             }
@@ -649,7 +724,7 @@ fn generate_report(format: &str) -> Result<()> {
             anyhow::bail!("Unsupported format: {}", format);
         }
     }
-    
+
     Ok(())
 }
 
@@ -732,28 +807,23 @@ fn calculate_coverage_percentage(lcov_file: &Path) -> Result<()> {
             if let Ok(total) = line[3..].parse::<u64>() {
                 file_lines_total = total as i32;
             }
-        }
-        else if line.starts_with("LH:") && !skip_current_file {
+        } else if line.starts_with("LH:") && !skip_current_file {
             if let Ok(hit) = line[3..].parse::<u64>() {
                 file_lines_hit = hit as i32;
             }
-        }
-        else if line.starts_with("FNF:") && !skip_current_file {
+        } else if line.starts_with("FNF:") && !skip_current_file {
             if let Ok(total) = line[4..].parse::<u64>() {
                 file_functions_total = total as i32;
             }
-        }
-        else if line.starts_with("FNH:") && !skip_current_file {
+        } else if line.starts_with("FNH:") && !skip_current_file {
             if let Ok(hit) = line[4..].parse::<u64>() {
                 file_functions_hit = hit as i32;
             }
-        }
-        else if line.starts_with("BRF:") && !skip_current_file {
+        } else if line.starts_with("BRF:") && !skip_current_file {
             if let Ok(total) = line[4..].parse::<u64>() {
                 file_branches_total = total as i32;
             }
-        }
-        else if line.starts_with("BRH:") && !skip_current_file {
+        } else if line.starts_with("BRH:") && !skip_current_file {
             if let Ok(hit) = line[4..].parse::<u64>() {
                 file_branches_hit = hit as i32;
             }
@@ -776,7 +846,10 @@ fn calculate_coverage_percentage(lcov_file: &Path) -> Result<()> {
     // Line coverage
     if lines_total > 0 {
         let line_percentage = (lines_hit as f64 / lines_total as f64) * 100.0;
-        println!("  Lines:     {:.2}% ({}/{} lines)", line_percentage, lines_hit, lines_total);
+        println!(
+            "  Lines:     {:.2}% ({}/{} lines)",
+            line_percentage, lines_hit, lines_total
+        );
     } else {
         println!("  Lines:     No line coverage data");
     }
@@ -784,7 +857,10 @@ fn calculate_coverage_percentage(lcov_file: &Path) -> Result<()> {
     // Function coverage
     if functions_total > 0 {
         let function_percentage = (functions_hit as f64 / functions_total as f64) * 100.0;
-        println!("  Functions: {:.2}% ({}/{} functions)", function_percentage, functions_hit, functions_total);
+        println!(
+            "  Functions: {:.2}% ({}/{} functions)",
+            function_percentage, functions_hit, functions_total
+        );
     } else {
         println!("  Functions: No function coverage data");
     }
@@ -792,7 +868,10 @@ fn calculate_coverage_percentage(lcov_file: &Path) -> Result<()> {
     // Branch coverage
     if branches_total > 0 {
         let branch_percentage = (branches_hit as f64 / branches_total as f64) * 100.0;
-        println!("  Branches:  {:.2}% ({}/{} branches)", branch_percentage, branches_hit, branches_total);
+        println!(
+            "  Branches:  {:.2}% ({}/{} branches)",
+            branch_percentage, branches_hit, branches_total
+        );
     } else {
         println!("  Branches:  No branch coverage data");
     }

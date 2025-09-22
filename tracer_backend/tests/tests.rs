@@ -4,8 +4,8 @@ use std::time::Duration;
 
 // Helper function for individual gtest execution with timeout
 fn run_gtest(bin: &str, filter: &str) -> io::Result<()> {
-    use std::thread;
     use std::sync::mpsc;
+    use std::thread;
 
     let mut cmd = Command::new(bin);
     cmd.arg("--gtest_brief=1")
@@ -29,9 +29,9 @@ fn run_gtest(bin: &str, filter: &str) -> io::Result<()> {
 
     // Determine timeout based on test type
     let timeout = if filter.contains("integration") || filter.contains("Integration") {
-        Duration::from_secs(120)  // 2 minutes for integration tests
+        Duration::from_secs(120) // 2 minutes for integration tests
     } else {
-        Duration::from_secs(60)   // 1 minute for unit tests
+        Duration::from_secs(60) // 1 minute for unit tests
     };
 
     // Wait for either completion or timeout

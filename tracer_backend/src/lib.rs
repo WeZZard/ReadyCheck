@@ -1,5 +1,5 @@
 //! Tracer Backend Library
-//! 
+//!
 //! This library provides the Rust interface to the native tracer backend
 //! components built with Frida.
 
@@ -10,26 +10,26 @@ use std::ptr;
 
 pub mod ffi {
     //! Foreign Function Interface bindings
-    
+
     // Include auto-generated bindings if available
     #![allow(non_upper_case_globals)]
     #![allow(non_camel_case_types)]
     #![allow(non_snake_case)]
     #![allow(dead_code)]
-    
+
     // Try to include generated bindings, fall back to manual definitions
     #[cfg(feature = "bindgen")]
     include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
-    
+
     #[cfg(not(feature = "bindgen"))]
     pub mod manual {
         use std::os::raw::{c_char, c_int, c_uint};
-        
+
         #[repr(C)]
         pub struct FridaController {
             _private: [u8; 0],
         }
-        
+
         #[repr(C)]
         #[derive(Debug, Clone, Copy)]
         pub struct TracerStats {
@@ -40,7 +40,7 @@ pub mod ffi {
             pub cpu_overhead_percent: f64,
             pub memory_usage_mb: f64,
         }
-        
+
         #[repr(C)]
         #[derive(Debug, Clone, Copy, PartialEq)]
         pub enum ProcessState {
@@ -54,7 +54,7 @@ pub mod ffi {
             Detaching = 7,
             Failed = 8,
         }
-        
+
         extern "C" {
             pub fn frida_controller_create(output_dir: *const c_char) -> *mut FridaController;
             pub fn frida_controller_destroy(controller: *mut FridaController);
@@ -72,7 +72,7 @@ pub mod ffi {
             pub fn frida_controller_get_state(controller: *mut FridaController) -> ProcessState;
         }
     }
-    
+
     #[cfg(not(feature = "bindgen"))]
     pub use manual::*;
 }
@@ -89,16 +89,16 @@ impl TracerController {
     pub fn new<P: AsRef<Path>>(output_dir: P) -> anyhow::Result<Self> {
         let output_dir = output_dir.as_ref();
         let c_path = CString::new(output_dir.to_str().unwrap())?;
-        
+
         let ptr = unsafe { ffi::frida_controller_create(c_path.as_ptr()) };
-        
+
         if ptr.is_null() {
             anyhow::bail!("Failed to create tracer controller");
         }
-        
+
         Ok(TracerController { ptr })
     }
-    
+
     /// Spawn a process in suspended state
     pub fn spawn_suspended<P: AsRef<Path>>(
         &mut self,
@@ -106,87 +106,79 @@ impl TracerController {
         args: &[String],
     ) -> anyhow::Result<u32> {
         let path = CString::new(path.as_ref().to_str().unwrap())?;
-        
+
         // Convert args to C strings
         let c_args: Vec<CString> = args
             .iter()
             .map(|s| CString::new(s.as_str()))
             .collect::<Result<_, _>>()?;
-        
+
         // Create argv array
-        let mut argv: Vec<*const c_char> = c_args
-            .iter()
-            .map(|s| s.as_ptr())
-            .collect();
+        let mut argv: Vec<*const c_char> = c_args.iter().map(|s| s.as_ptr()).collect();
         argv.push(ptr::null());
-        
+
         let mut pid: c_uint = 0;
-        
+
         let result = unsafe {
-            ffi::frida_controller_spawn_suspended(
-                self.ptr,
-                path.as_ptr(),
-                argv.as_ptr(),
-                &mut pid,
-            )
+            ffi::frida_controller_spawn_suspended(self.ptr, path.as_ptr(), argv.as_ptr(), &mut pid)
         };
-        
+
         if result != 0 {
             anyhow::bail!("Failed to spawn process");
         }
-        
+
         Ok(pid)
     }
-    
+
     /// Attach to a running process
     pub fn attach(&mut self, pid: u32) -> anyhow::Result<()> {
         let result = unsafe { ffi::frida_controller_attach(self.ptr, pid) };
-        
+
         if result != 0 {
             anyhow::bail!("Failed to attach to process {}", pid);
         }
-        
+
         Ok(())
     }
-    
+
     /// Install hooks in the attached process
     pub fn install_hooks(&mut self) -> anyhow::Result<()> {
         let result = unsafe { ffi::frida_controller_install_hooks(self.ptr) };
-        
+
         if result != 0 {
             anyhow::bail!("Failed to install hooks");
         }
-        
+
         Ok(())
     }
-    
+
     /// Resume a suspended process
     pub fn resume(&mut self) -> anyhow::Result<()> {
         let result = unsafe { ffi::frida_controller_resume(self.ptr) };
-        
+
         if result != 0 {
             anyhow::bail!("Failed to resume process");
         }
-        
+
         Ok(())
     }
-    
+
     /// Detach from the process
     pub fn detach(&mut self) -> anyhow::Result<()> {
         let result = unsafe { ffi::frida_controller_detach(self.ptr) };
-        
+
         if result != 0 {
             anyhow::bail!("Failed to detach from process");
         }
-        
+
         Ok(())
     }
-    
+
     /// Get current statistics
     pub fn get_stats(&self) -> TracerStats {
         unsafe { ffi::frida_controller_get_stats(self.ptr) }
     }
-    
+
     /// Get current process state
     pub fn get_state(&self) -> ProcessState {
         unsafe { ffi::frida_controller_get_state(self.ptr) }

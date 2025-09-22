@@ -21,27 +21,23 @@ pub struct ComponentMetrics {
 }
 
 /// Generate the HTML dashboard
-pub fn generate_dashboard(
-    workspace: &Path,
-    report_dir: &Path,
-    merged_lcov: &Path,
-) -> Result<()> {
+pub fn generate_dashboard(workspace: &Path, report_dir: &Path, merged_lcov: &Path) -> Result<()> {
     println!("\nGenerating HTML dashboard...");
-    
+
     // Ensure report directory exists
     fs::create_dir_all(report_dir)?;
-    
+
     // Parse LCOV file for metrics
     let metrics = parse_lcov_metrics(merged_lcov)?;
-    
+
     // Get git information
     let commit = get_git_commit()?;
     let branch = get_git_branch()?;
     let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-    
+
     // Check diff-cover results if available
     let changed_lines_metrics = get_diff_cover_metrics(report_dir)?;
-    
+
     // Read template
     let template_path = workspace.join("utils/coverage_helper/dashboard_template.html");
     let template = if template_path.exists() {
@@ -50,7 +46,7 @@ pub fn generate_dashboard(
         // Use embedded template if file doesn't exist
         include_str!("../dashboard_template.html").to_string()
     };
-    
+
     // Replace placeholders
     let html = replace_placeholders(
         template,
@@ -60,48 +56,48 @@ pub fn generate_dashboard(
         &branch,
         &timestamp,
     );
-    
+
     // Write dashboard
     let dashboard_path = report_dir.join("index.html");
     fs::write(&dashboard_path, html)?;
     println!("  Dashboard generated: {}", dashboard_path.display());
-    
+
     // Generate full HTML report using genhtml if available
     if which::which("genhtml").is_ok() {
         generate_full_html_report(merged_lcov, report_dir)?;
     }
-    
+
     // Generate diff-coverage HTML report
     generate_diff_coverage_report(workspace, merged_lcov, report_dir)?;
-    
+
     // Generate uncovered lines text file
     generate_uncovered_lines_report(merged_lcov, report_dir)?;
-    
+
     // Generate coverage history HTML page
     generate_history_report(workspace, report_dir)?;
-    
+
     Ok(())
 }
 
 /// Parse LCOV file for coverage metrics
 fn parse_lcov_metrics(lcov_path: &Path) -> Result<HashMap<String, ComponentMetrics>> {
     let metrics = HashMap::new();
-    
+
     if !lcov_path.exists() {
         return Ok(metrics);
     }
-    
+
     let content = fs::read_to_string(lcov_path)?;
     let mut current_file = String::new();
     let mut component_data: HashMap<String, ComponentMetrics> = HashMap::new();
-    
+
     // Initialize component metrics
     component_data.insert("tracer".to_string(), ComponentMetrics::default());
     component_data.insert("tracer_backend".to_string(), ComponentMetrics::default());
     component_data.insert("query_engine".to_string(), ComponentMetrics::default());
     component_data.insert("mcp_server".to_string(), ComponentMetrics::default());
     component_data.insert("total".to_string(), ComponentMetrics::default());
-    
+
     for line in content.lines() {
         if line.starts_with("SF:") {
             current_file = line[3..].to_string();
@@ -119,23 +115,21 @@ fn parse_lcov_metrics(lcov_path: &Path) -> Result<HashMap<String, ComponentMetri
                 let is_covered = parts[1] != "0";
 
                 // Update component metrics
-                component_data.entry(component.clone())
-                    .and_modify(|m| {
+                component_data.entry(component.clone()).and_modify(|m| {
+                    m.lines_total += 1;
+                    if is_covered {
+                        m.lines_covered += 1;
+                    }
+                });
+
+                // Update total metrics (only for actual project files)
+                if component != "other" {
+                    component_data.entry("total".to_string()).and_modify(|m| {
                         m.lines_total += 1;
                         if is_covered {
                             m.lines_covered += 1;
                         }
                     });
-
-                // Update total metrics (only for actual project files)
-                if component != "other" {
-                    component_data.entry("total".to_string())
-                        .and_modify(|m| {
-                            m.lines_total += 1;
-                            if is_covered {
-                                m.lines_covered += 1;
-                            }
-                        });
                 }
             }
         } else if line.starts_with("FNDA:") {
@@ -153,23 +147,21 @@ fn parse_lcov_metrics(lcov_path: &Path) -> Result<HashMap<String, ComponentMetri
                     let is_covered = hits > 0;
 
                     // Update component metrics
-                    component_data.entry(component.clone())
-                        .and_modify(|m| {
+                    component_data.entry(component.clone()).and_modify(|m| {
+                        m.functions_total += 1;
+                        if is_covered {
+                            m.functions_covered += 1;
+                        }
+                    });
+
+                    // Update total metrics (only for actual project files)
+                    if component != "other" {
+                        component_data.entry("total".to_string()).and_modify(|m| {
                             m.functions_total += 1;
                             if is_covered {
                                 m.functions_covered += 1;
                             }
                         });
-
-                    // Update total metrics (only for actual project files)
-                    if component != "other" {
-                        component_data.entry("total".to_string())
-                            .and_modify(|m| {
-                                m.functions_total += 1;
-                                if is_covered {
-                                    m.functions_covered += 1;
-                                }
-                            });
                     }
                 }
             }
@@ -187,47 +179,43 @@ fn parse_lcov_metrics(lcov_path: &Path) -> Result<HashMap<String, ComponentMetri
                 let is_covered = parts[3] != "-" && parts[3] != "0";
 
                 // Update component metrics
-                component_data.entry(component.clone())
-                    .and_modify(|m| {
+                component_data.entry(component.clone()).and_modify(|m| {
+                    m.branches_total += 1;
+                    if is_covered {
+                        m.branches_covered += 1;
+                    }
+                });
+
+                // Update total metrics (only for actual project files)
+                if component != "other" {
+                    component_data.entry("total".to_string()).and_modify(|m| {
                         m.branches_total += 1;
                         if is_covered {
                             m.branches_covered += 1;
                         }
                     });
-
-                // Update total metrics (only for actual project files)
-                if component != "other" {
-                    component_data.entry("total".to_string())
-                        .and_modify(|m| {
-                            m.branches_total += 1;
-                            if is_covered {
-                                m.branches_covered += 1;
-                            }
-                        });
                 }
             }
         } else if line.starts_with("LF:") {
             // Summary line for lines found (use if more accurate than counting DA lines)
             if let Ok(total) = line[3..].parse::<usize>() {
                 let component = detect_component(&current_file);
-                component_data.entry(component.clone())
-                    .and_modify(|m| {
-                        // Only update if we haven't counted DA lines yet or this is more accurate
-                        if m.lines_total == 0 {
-                            m.lines_total = total;
-                        }
-                    });
+                component_data.entry(component.clone()).and_modify(|m| {
+                    // Only update if we haven't counted DA lines yet or this is more accurate
+                    if m.lines_total == 0 {
+                        m.lines_total = total;
+                    }
+                });
             }
         } else if line.starts_with("LH:") {
             // Summary line for lines hit
             if let Ok(hit) = line[3..].parse::<usize>() {
                 let component = detect_component(&current_file);
-                component_data.entry(component.clone())
-                    .and_modify(|m| {
-                        if m.lines_covered == 0 {
-                            m.lines_covered = hit;
-                        }
-                    });
+                component_data.entry(component.clone()).and_modify(|m| {
+                    if m.lines_covered == 0 {
+                        m.lines_covered = hit;
+                    }
+                });
             }
         } else if line.starts_with("FNF:") {
             // Summary line for functions found
@@ -240,17 +228,15 @@ fn parse_lcov_metrics(lcov_path: &Path) -> Result<HashMap<String, ComponentMetri
                 }
 
                 // Add to component totals (don't replace, accumulate from multiple files)
-                component_data.entry(component.clone())
-                    .and_modify(|m| {
-                        m.functions_total += total;
-                    });
+                component_data.entry(component.clone()).and_modify(|m| {
+                    m.functions_total += total;
+                });
 
                 // Also add to overall total (only for actual project files)
                 if component != "other" {
-                    component_data.entry("total".to_string())
-                        .and_modify(|m| {
-                            m.functions_total += total;
-                        });
+                    component_data.entry("total".to_string()).and_modify(|m| {
+                        m.functions_total += total;
+                    });
                 }
             }
         } else if line.starts_with("FNH:") {
@@ -264,17 +250,15 @@ fn parse_lcov_metrics(lcov_path: &Path) -> Result<HashMap<String, ComponentMetri
                 }
 
                 // Add to component coverage (accumulate from multiple files)
-                component_data.entry(component.clone())
-                    .and_modify(|m| {
-                        m.functions_covered += hit;
-                    });
+                component_data.entry(component.clone()).and_modify(|m| {
+                    m.functions_covered += hit;
+                });
 
                 // Also add to overall coverage (only for actual project files)
                 if component != "other" {
-                    component_data.entry("total".to_string())
-                        .and_modify(|m| {
-                            m.functions_covered += hit;
-                        });
+                    component_data.entry("total".to_string()).and_modify(|m| {
+                        m.functions_covered += hit;
+                    });
                 }
             }
         } else if line.starts_with("BRF:") {
@@ -288,17 +272,15 @@ fn parse_lcov_metrics(lcov_path: &Path) -> Result<HashMap<String, ComponentMetri
                 }
 
                 // Add to component totals (accumulate from multiple files)
-                component_data.entry(component.clone())
-                    .and_modify(|m| {
-                        m.branches_total += total;
-                    });
+                component_data.entry(component.clone()).and_modify(|m| {
+                    m.branches_total += total;
+                });
 
                 // Also add to overall total (only for actual project files)
                 if component != "other" {
-                    component_data.entry("total".to_string())
-                        .and_modify(|m| {
-                            m.branches_total += total;
-                        });
+                    component_data.entry("total".to_string()).and_modify(|m| {
+                        m.branches_total += total;
+                    });
                 }
             }
         } else if line.starts_with("BRH:") {
@@ -312,17 +294,15 @@ fn parse_lcov_metrics(lcov_path: &Path) -> Result<HashMap<String, ComponentMetri
                 }
 
                 // Add to component coverage (accumulate from multiple files)
-                component_data.entry(component.clone())
-                    .and_modify(|m| {
-                        m.branches_covered += hit;
-                    });
+                component_data.entry(component.clone()).and_modify(|m| {
+                    m.branches_covered += hit;
+                });
 
                 // Also add to overall coverage (only for actual project files)
                 if component != "other" {
-                    component_data.entry("total".to_string())
-                        .and_modify(|m| {
-                            m.branches_covered += hit;
-                        });
+                    component_data.entry("total".to_string()).and_modify(|m| {
+                        m.branches_covered += hit;
+                    });
                 }
             }
         }
@@ -341,13 +321,15 @@ fn parse_lcov_metrics(lcov_path: &Path) -> Result<HashMap<String, ComponentMetri
         if metrics.branches_total > 0 {
             metrics.branch_coverage =
                 (metrics.branches_covered as f64 / metrics.branches_total as f64) * 100.0;
-            eprintln!("DEBUG: {} branch coverage: {}/{} = {:.1}%",
-                     name, metrics.branches_covered, metrics.branches_total, metrics.branch_coverage);
+            eprintln!(
+                "DEBUG: {} branch coverage: {}/{} = {:.1}%",
+                name, metrics.branches_covered, metrics.branches_total, metrics.branch_coverage
+            );
         } else if name != "total" && name != "other" {
             eprintln!("DEBUG: {} has no branch data (branches_total=0)", name);
         }
     }
-    
+
     Ok(component_data)
 }
 
@@ -390,12 +372,13 @@ fn detect_component(file_path: &str) -> String {
     // Use centralized exclusion logic
     if should_exclude_from_coverage(file_path) {
         // Determine the specific type of exclusion for categorization
-        if file_path.contains(".cargo/registry") ||
-           file_path.contains(".cargo/git") ||
-           file_path.contains("/rustc-") ||
-           file_path.contains("/private/tmp/") ||
-           file_path.contains("/third_parties/") ||
-           file_path.contains("third_parties/") {
+        if file_path.contains(".cargo/registry")
+            || file_path.contains(".cargo/git")
+            || file_path.contains("/rustc-")
+            || file_path.contains("/private/tmp/")
+            || file_path.contains("/third_parties/")
+            || file_path.contains("third_parties/")
+        {
             return "dependencies".to_string();
         } else {
             return "test_files".to_string();
@@ -424,16 +407,16 @@ fn detect_component(file_path: &str) -> String {
 /// Get diff-cover metrics if available
 fn get_diff_cover_metrics(_report_dir: &Path) -> Result<HashMap<String, String>> {
     let mut metrics = HashMap::new();
-    
+
     // Set defaults
     metrics.insert("CHANGED_LINES_COVERAGE".to_string(), "N/A".to_string());
     metrics.insert("CHANGED_LINES_STATUS".to_string(), "warning".to_string());
     metrics.insert("CHANGED_LINES_COVERED".to_string(), "0".to_string());
     metrics.insert("CHANGED_LINES_TOTAL".to_string(), "0".to_string());
     metrics.insert("CHANGED_LINES_RESULT".to_string(), "No Changes".to_string());
-    
+
     // TODO: Parse diff-cover output if available
-    
+
     Ok(metrics)
 }
 
@@ -443,7 +426,7 @@ fn get_git_commit() -> Result<String> {
         .args(&["rev-parse", "--short", "HEAD"])
         .output()
         .context("Failed to get git commit")?;
-    
+
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
@@ -453,7 +436,7 @@ fn get_git_branch() -> Result<String> {
         .args(&["rev-parse", "--abbrev-ref", "HEAD"])
         .output()
         .context("Failed to get git branch")?;
-    
+
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
@@ -470,12 +453,12 @@ fn replace_placeholders(
     template = template.replace("{{TIMESTAMP}}", timestamp);
     template = template.replace("{{COMMIT}}", commit);
     template = template.replace("{{BRANCH}}", branch);
-    
+
     // Changed lines metrics
     for (key, value) in changed_lines {
         template = template.replace(&format!("{{{{{}}}}}", key), value);
     }
-    
+
     // Total coverage with all metrics
     if let Some(total) = metrics.get("total") {
         // Calculate overall coverage (weighted average of all available metrics)
@@ -509,7 +492,10 @@ fn replace_placeholders(
 
         // Function coverage
         if total.functions_total > 0 {
-            template = template.replace("{{FUNC_COVERAGE}}", &format!("{:.1}", total.function_coverage));
+            template = template.replace(
+                "{{FUNC_COVERAGE}}",
+                &format!("{:.1}", total.function_coverage),
+            );
             template = template.replace("{{FUNC_STATUS}}", &get_status(total.function_coverage));
             template = template.replace("{{FUNC_COVERED}}", &total.functions_covered.to_string());
             template = template.replace("{{FUNC_TOTAL}}", &total.functions_total.to_string());
@@ -522,7 +508,10 @@ fn replace_placeholders(
 
         // Branch coverage
         if total.branches_total > 0 {
-            template = template.replace("{{BRANCH_COVERAGE}}", &format!("{:.1}", total.branch_coverage));
+            template = template.replace(
+                "{{BRANCH_COVERAGE}}",
+                &format!("{:.1}", total.branch_coverage),
+            );
             template = template.replace("{{BRANCH_STATUS}}", &get_status(total.branch_coverage));
             template = template.replace("{{BRANCH_COVERED}}", &total.branches_covered.to_string());
             template = template.replace("{{BRANCH_TOTAL}}", &total.branches_total.to_string());
@@ -533,14 +522,14 @@ fn replace_placeholders(
             template = template.replace("{{BRANCH_TOTAL}}", "0");
         }
     }
-    
+
     // Component metrics
     for component in &["tracer", "tracer_backend", "query_engine", "mcp_server"] {
         let prefix = component.to_uppercase().replace("_", "_");
         let comp_metrics = metrics.get(*component).cloned().unwrap_or_default();
         let status = get_status(comp_metrics.line_coverage);
         let health = get_health(&comp_metrics);
-        
+
         // Special handling for component prefixes
         let template_prefix = match *component {
             "tracer_backend" => "BACKEND",
@@ -548,15 +537,12 @@ fn replace_placeholders(
             "mcp_server" => "MCP",
             _ => &prefix,
         };
-        
+
         template = template.replace(
             &format!("{{{{{}_LINE_COV}}}}", template_prefix),
             &format!("{:.1}", comp_metrics.line_coverage),
         );
-        template = template.replace(
-            &format!("{{{{{}_LINE_STATUS}}}}", template_prefix),
-            &status,
-        );
+        template = template.replace(&format!("{{{{{}_LINE_STATUS}}}}", template_prefix), &status);
 
         // Function coverage for component
         if comp_metrics.functions_total > 0 {
@@ -565,10 +551,7 @@ fn replace_placeholders(
                 &format!("{:.1}", comp_metrics.function_coverage),
             );
         } else {
-            template = template.replace(
-                &format!("{{{{{}_FUNC_COV}}}}", template_prefix),
-                "N/A",
-            );
+            template = template.replace(&format!("{{{{{}_FUNC_COV}}}}", template_prefix), "N/A");
         }
 
         // Branch coverage for component
@@ -578,22 +561,13 @@ fn replace_placeholders(
                 &format!("{:.1}", comp_metrics.branch_coverage),
             );
         } else {
-            template = template.replace(
-                &format!("{{{{{}_BRANCH_COV}}}}", template_prefix),
-                "N/A",
-            );
+            template = template.replace(&format!("{{{{{}_BRANCH_COV}}}}", template_prefix), "N/A");
         }
 
-        template = template.replace(
-            &format!("{{{{{}_STATUS}}}}", template_prefix),
-            &status,
-        );
-        template = template.replace(
-            &format!("{{{{{}_HEALTH}}}}", template_prefix),
-            &health,
-        );
+        template = template.replace(&format!("{{{{{}_STATUS}}}}", template_prefix), &status);
+        template = template.replace(&format!("{{{{{}_HEALTH}}}}", template_prefix), &health);
     }
-    
+
     template
 }
 
@@ -622,10 +596,10 @@ fn get_health(metrics: &ComponentMetrics) -> String {
 /// Generate full HTML report using genhtml
 fn generate_full_html_report(lcov_path: &Path, report_dir: &Path) -> Result<()> {
     println!("  Generating full HTML report with genhtml...");
-    
+
     let full_report_dir = report_dir.join("full");
     fs::create_dir_all(&full_report_dir)?;
-    
+
     let output = Command::new("genhtml")
         .args(&[
             lcov_path.to_str().unwrap(),
@@ -641,29 +615,36 @@ fn generate_full_html_report(lcov_path: &Path, report_dir: &Path) -> Result<()> 
         ])
         .output()
         .context("Failed to run genhtml")?;
-    
+
     if output.status.success() {
-        println!("  Full report generated: {}/index.html", full_report_dir.display());
+        println!(
+            "  Full report generated: {}/index.html",
+            full_report_dir.display()
+        );
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr);
         println!("  Warning: genhtml failed: {}", stderr);
     }
-    
+
     Ok(())
 }
 
 /// Generate diff-coverage HTML report
-fn generate_diff_coverage_report(workspace: &Path, lcov_path: &Path, report_dir: &Path) -> Result<()> {
+fn generate_diff_coverage_report(
+    workspace: &Path,
+    lcov_path: &Path,
+    report_dir: &Path,
+) -> Result<()> {
     println!("  Generating diff-coverage HTML report...");
-    
+
     // Check if diff-cover is available
     if which::which("diff-cover").is_err() {
         println!("    diff-cover not found, skipping diff-coverage report");
         return Ok(());
     }
-    
+
     let diff_report_path = report_dir.join("diff-coverage.html");
-    
+
     // Run diff-cover with HTML output
     let output = Command::new("diff-cover")
         .args(&[
@@ -676,9 +657,12 @@ fn generate_diff_coverage_report(workspace: &Path, lcov_path: &Path, report_dir:
         .current_dir(workspace)
         .output()
         .context("Failed to run diff-cover")?;
-    
+
     if output.status.success() {
-        println!("    Diff-coverage report generated: {}", diff_report_path.display());
+        println!(
+            "    Diff-coverage report generated: {}",
+            diff_report_path.display()
+        );
     } else {
         // Even if it fails (e.g., no changes), create a simple placeholder
         let placeholder_html = r#"<!DOCTYPE html>
@@ -707,21 +691,21 @@ fn generate_diff_coverage_report(workspace: &Path, lcov_path: &Path, report_dir:
         fs::write(&diff_report_path, placeholder_html)?;
         println!("    Diff-coverage placeholder created");
     }
-    
+
     Ok(())
 }
 
 /// Generate uncovered lines text file
 fn generate_uncovered_lines_report(lcov_path: &Path, report_dir: &Path) -> Result<()> {
     println!("  Generating uncovered lines report...");
-    
+
     let uncovered_path = report_dir.join("uncovered.txt");
     let mut uncovered_lines = Vec::new();
-    
+
     if lcov_path.exists() {
         let content = fs::read_to_string(lcov_path)?;
         let mut current_file = String::new();
-        
+
         for line in content.lines() {
             if line.starts_with("SF:") {
                 current_file = line[3..].to_string();
@@ -729,10 +713,14 @@ fn generate_uncovered_lines_report(lcov_path: &Path, report_dir: &Path) -> Resul
                 // DA:line_number,hit_count
                 let parts: Vec<&str> = line[3..].split(',').collect();
                 if parts.len() == 2 {
-                    if let (Ok(line_num), Ok(hits)) = (parts[0].parse::<u32>(), parts[1].parse::<u32>()) {
+                    if let (Ok(line_num), Ok(hits)) =
+                        (parts[0].parse::<u32>(), parts[1].parse::<u32>())
+                    {
                         if hits == 0 && !current_file.is_empty() {
                             // Use centralized exclusion logic
-                            if !should_exclude_from_coverage(&current_file) && current_file.contains("/Projects/ADA/") {
+                            if !should_exclude_from_coverage(&current_file)
+                                && current_file.contains("/Projects/ADA/")
+                            {
                                 // Make path relative to workspace for readability
                                 let relative_path = current_file
                                     .strip_prefix("/Users/wezzard/Projects/ADA/")
@@ -745,15 +733,18 @@ fn generate_uncovered_lines_report(lcov_path: &Path, report_dir: &Path) -> Resul
             }
         }
     }
-    
+
     // Sort uncovered lines for better readability
     uncovered_lines.sort();
-    
+
     // Write uncovered lines report
     let mut report = String::from("UNCOVERED LINES REPORT\n");
     report.push_str("======================\n\n");
-    report.push_str(&format!("Total uncovered lines: {}\n\n", uncovered_lines.len()));
-    
+    report.push_str(&format!(
+        "Total uncovered lines: {}\n\n",
+        uncovered_lines.len()
+    ));
+
     if uncovered_lines.is_empty() {
         report.push_str("🎉 All lines are covered!\n");
     } else {
@@ -764,35 +755,40 @@ fn generate_uncovered_lines_report(lcov_path: &Path, report_dir: &Path) -> Resul
             report.push('\n');
         }
     }
-    
+
     fs::write(&uncovered_path, report)?;
-    println!("    Uncovered lines report generated: {}", uncovered_path.display());
-    
+    println!(
+        "    Uncovered lines report generated: {}",
+        uncovered_path.display()
+    );
+
     Ok(())
 }
 
 /// Generate coverage history HTML page
 fn generate_history_report(workspace: &Path, report_dir: &Path) -> Result<()> {
     println!("  Generating coverage history report...");
-    
+
     let history_path = report_dir.join("history.html");
     let trend_csv = workspace.join("target/coverage/coverage_trend.csv");
-    
+
     let mut timestamps = Vec::new();
     let mut coverages = Vec::new();
     let mut commits = Vec::new();
-    
+
     // Read trend data if available
     if trend_csv.exists() {
         let content = fs::read_to_string(&trend_csv)?;
         for (i, line) in content.lines().enumerate() {
-            if i == 0 { continue; } // Skip header
-            
+            if i == 0 {
+                continue;
+            } // Skip header
+
             let parts: Vec<&str> = line.split(',').collect();
             if parts.len() >= 3 {
                 timestamps.push(parts[0].to_string());
                 commits.push(parts[1].to_string());
-                
+
                 // Parse coverage percentage
                 if let Ok(cov) = parts[2].parse::<f64>() {
                     coverages.push(cov);
@@ -802,9 +798,10 @@ fn generate_history_report(workspace: &Path, report_dir: &Path) -> Result<()> {
             }
         }
     }
-    
+
     // Generate history HTML with embedded chart
-    let history_html = format!(r#"<!DOCTYPE html>
+    let history_html = format!(
+        r#"<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
@@ -946,15 +943,22 @@ fn generate_history_report(workspace: &Path, report_dir: &Path) -> Result<()> {
 </html>"#,
         coverages.len(),
         coverages.last().unwrap_or(&0.0),
-        if coverages.is_empty() { 0.0 } else { coverages.iter().sum::<f64>() / coverages.len() as f64 },
+        if coverages.is_empty() {
+            0.0
+        } else {
+            coverages.iter().sum::<f64>() / coverages.len() as f64
+        },
         coverages.iter().fold(0.0f64, |a, &b| a.max(b)),
         timestamps,
         coverages,
         commits
     );
-    
+
     fs::write(&history_path, history_html)?;
-    println!("    Coverage history report generated: {}", history_path.display());
-    
+    println!(
+        "    Coverage history report generated: {}",
+        history_path.display()
+    );
+
     Ok(())
 }
