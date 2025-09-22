@@ -15,6 +15,11 @@ crate-type = ["rlib"]
 pyo3 = { version = "0.22", features = ["abi3-py39"], optional = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+hyper = { version = "0.14", features = ["full"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync"] }
+async-trait = "0.1"
+parking_lot = "0.12"
+dashmap = "5"
 anyhow = "1.0"
 thiserror = "2.0"
 
