@@ -1,3 +1,7 @@
+---
+status: completed
+---
+
 # M1_E5_I1 Backlogs: Getting Started Guide
 
 ## Implementation Tasks

@@ -1,3 +1,7 @@
+---
+status: completed
+---
+
 # M1_E3_I4 Backlogs: Integration Validation
 
 ## Sprint Overview

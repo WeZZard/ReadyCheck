@@ -1,3 +1,7 @@
+---
+status: completed
+---
+
 # M1_E2_I6 Backlogs: Signal-Based Shutdown Implementation
 
 ## Iteration Overview

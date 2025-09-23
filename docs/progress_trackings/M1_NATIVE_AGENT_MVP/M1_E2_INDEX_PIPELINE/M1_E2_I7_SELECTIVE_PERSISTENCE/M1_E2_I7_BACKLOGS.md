@@ -1,3 +1,7 @@
+---
+status: completed
+---
+
 # M1_E2_I7_SELECTIVE_PERSISTENCE Backlogs
 
 ## Iteration Overview

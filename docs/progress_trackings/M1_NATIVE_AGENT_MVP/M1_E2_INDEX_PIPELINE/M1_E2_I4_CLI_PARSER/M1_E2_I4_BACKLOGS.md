@@ -1,3 +1,7 @@
+---
+status: completed
+---
+
 # Backlogs — M1 E2 I4 CLI Parser
 
 ## Iteration Goal

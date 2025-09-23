@@ -1,3 +1,7 @@
+---
+status: completed
+---
+
 # M1_E3_I2 Backlogs: Per-Thread Metrics Collection
 
 ## Sprint Overview
