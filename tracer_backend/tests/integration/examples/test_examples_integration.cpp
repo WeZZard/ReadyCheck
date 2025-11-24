@@ -1,16 +1,24 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <cerrno>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <map>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <vector>
+
+#include <fcntl.h>
+#include <signal.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 namespace {
 
@@ -197,24 +205,57 @@ TEST(examples__signal_trace__handles_signals_and_cleans_up, integration) {
     ASSERT_EQ(run_in_directory(compile_cmd, temp), 0) << "failed to compile signal_trace";
     ASSERT_TRUE(std::filesystem::exists(temp / "signal_trace"));
 
-    std::string run_script;
-    run_script += "./signal_trace > output.txt &\n";
-    run_script += "pid=$!\n";
-    run_script += "sleep 1\n";
-    run_script += "kill -INT $pid\n";
-    run_script += "sleep 1\n";
-    run_script += "kill -INT $pid\n";
-    run_script += "sleep 1\n";
-    run_script += "kill -TERM $pid\n";
-    run_script += "wait $pid\n";
+    auto output_file = temp / "output.txt";
+    auto executable = temp / "signal_trace";
 
-    std::string run_cmd = "bash -c " + shell_quote(run_script);
-    ASSERT_EQ(run_in_directory(run_cmd, temp), 0) << "signal_trace execution failed";
+    // Fork and execute signal_trace
+    pid_t child_pid = fork();
+    ASSERT_NE(child_pid, -1) << "fork failed: " << std::strerror(errno);
 
-    auto output = read_file(temp / "output.txt");
+    if (child_pid == 0) {
+        // Child process: redirect stdout and exec signal_trace
+        int fd = open(output_file.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        if (fd == -1) {
+            std::fprintf(stderr, "Failed to open output file: %s\n", std::strerror(errno));
+            _exit(EXIT_FAILURE);
+        }
+        dup2(fd, STDOUT_FILENO);
+        close(fd);
+
+        execl(executable.c_str(), executable.c_str(), nullptr);
+        std::fprintf(stderr, "execl failed: %s\n", std::strerror(errno));
+        _exit(EXIT_FAILURE);
+    }
+
+    // Parent process: send signals
+    // Give child time to start and install signal handlers
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+
+    // Send first SIGINT
+    ASSERT_EQ(kill(child_pid, SIGINT), 0) << "Failed to send SIGINT(1): " << std::strerror(errno);
+    // Wait for program to process signal and print message (sleep can be up to 2s)
+    std::this_thread::sleep_for(std::chrono::milliseconds(2500));
+
+    // Send second SIGINT
+    ASSERT_EQ(kill(child_pid, SIGINT), 0) << "Failed to send SIGINT(2): " << std::strerror(errno);
+    // Wait for program to process signal and print message
+    std::this_thread::sleep_for(std::chrono::milliseconds(2500));
+
+    // Send SIGTERM
+    ASSERT_EQ(kill(child_pid, SIGTERM), 0) << "Failed to send SIGTERM: " << std::strerror(errno);
+
+    // Wait for child to exit
+    int status;
+    pid_t result = waitpid(child_pid, &status, 0);
+    ASSERT_EQ(result, child_pid) << "waitpid failed: " << std::strerror(errno);
+    ASSERT_TRUE(WIFEXITED(status)) << "Child did not exit normally";
+    ASSERT_EQ(WEXITSTATUS(status), 0) << "Child exited with status: " << WEXITSTATUS(status);
+
+    // Verify output
+    auto output = read_file(output_file);
     EXPECT_NE(std::string::npos, output.find("Signal tracing example"));
     EXPECT_NE(std::string::npos, output.find("SIGINT"));
     EXPECT_NE(std::string::npos, output.find("SIGTERM"));
-    EXPECT_NE(std::string::npos, output.find("cleanup"));
+    EXPECT_NE(std::string::npos, output.find("Cleanup"));
 }
 
