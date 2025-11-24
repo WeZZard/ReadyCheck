@@ -33,6 +33,13 @@ namespace internal {
 // Thread Local Data for Reentrancy Protection
 // ============================================================================
 
+// Custom deleter for GObjects (RAII)
+struct GObjectDeleter {
+    void operator()(gpointer ptr) {
+        if (ptr) g_object_unref(ptr);
+    }
+};
+
 class ThreadLocalData {
 public:
     ThreadLocalData();
@@ -69,10 +76,12 @@ struct HookData {
     uint64_t function_id;
     std::string function_name;
     GumAddress function_address;
-    GumInvocationListener* listener;  // Keep listener alive
+    GumInvocationListener* listener{};  // Keep listener alive
 
     HookData(AgentContext* ctx, uint64_t id, const std::string& name, GumAddress addr)
-        : context(ctx), function_id(id), function_name(name), function_address(addr), listener(nullptr) {}
+        : context(ctx), function_id(id), function_name(name), function_address(addr) {}
+        
+    ~HookData();
 };
 
 // ============================================================================
@@ -180,7 +189,7 @@ private:
     ControlBlock* control_block_;
     
     // Frida interceptor
-    GumInterceptor* interceptor_;
+    std::unique_ptr<GumInterceptor, GObjectDeleter> interceptor_;
     
     // Hook tracking
     std::vector<std::unique_ptr<HookData>> hooks_;
@@ -192,6 +201,7 @@ private:
     uint32_t host_pid_;
     uint32_t session_id_;
     uint64_t module_base_;
+    std::string agent_path_; // Path to the agent library itself (to avoid self-hooking)
     
     // Statistics (atomic for thread safety)
     std::atomic<uint64_t> events_emitted_;

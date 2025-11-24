@@ -165,6 +165,9 @@ private:
     std::atomic<uint32_t> symbol_estimate_{0};
     std::atomic<bool> has_symbol_estimate_{false};
     GCancellable* script_cancellable_{nullptr};
+
+    // Debugging
+    void wait_for_debugger_if_needed() const;
     
     // Constants
     static constexpr size_t INDEX_LANE_SIZE = 32 * 1024 * 1024;   // 32MB

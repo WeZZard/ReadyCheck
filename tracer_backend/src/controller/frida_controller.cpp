@@ -15,6 +15,7 @@ extern "C" {
 #include <chrono>
 #include <thread>
 #include <vector>
+#include <cctype>
 
 #ifdef __APPLE__
 #include <crt_externs.h>
@@ -78,6 +79,11 @@ StartupTimeoutConfig StartupTimeoutConfig::from_env() {
         if (end != env && *end == '\0' && v > 0) {
             cfg.override_ms = static_cast<uint32_t>(v);
         }
+    }
+
+    // If waiting for debugger, disable timeout (set to max)
+    if (getenv("ADA_WAIT_FOR_DEBUGGER")) {
+        cfg.override_ms = UINT32_MAX;
     }
 
     return cfg;
@@ -420,8 +426,21 @@ void FridaController::cleanup_frida_objects() {
 }
 
 // ============================================================================
+// ============================================================================
 // Process management
 // ============================================================================
+
+void FridaController::wait_for_debugger_if_needed() const {
+    if (getenv("ADA_WAIT_FOR_DEBUGGER")) {
+        printf("[Controller] Waiting for debugger... (PID: %d)\n", pid_);
+        printf("[Controller] Run: lldb -p %d\n", pid_);
+        printf("[Controller] Or use VS Code 'Attach to Process'\n");
+        
+        raise(SIGSTOP);
+        
+        printf("[Controller] Debugger attached! Resuming...\n");
+    }
+}
 
 int FridaController::spawn_suspended(const char* path, char* const argv[], uint32_t* out_pid) {
     printf("[Controller] Spawning process: %s\n", path);
@@ -498,6 +517,14 @@ int FridaController::spawn_suspended(const char* path, char* const argv[], uint3
         envp_vec.push_back(rust_cov_str.c_str());
     }
 
+    // Propagate ADA_WAIT_FOR_DEBUGGER
+    const char* wait_debug = g_getenv("ADA_WAIT_FOR_DEBUGGER");
+    std::string wait_debug_str;
+    if (wait_debug) {
+        wait_debug_str = std::string("ADA_WAIT_FOR_DEBUGGER=") + wait_debug;
+        envp_vec.push_back(wait_debug_str.c_str());
+    }
+
     envp_vec.push_back(nullptr);
 
     frida_spawn_options_set_envp(options, const_cast<gchar**>(envp_vec.data()), envp_vec.size() - 1);
@@ -526,6 +553,9 @@ int FridaController::spawn_suspended(const char* path, char* const argv[], uint3
     state_ = PROCESS_STATE_SUSPENDED;
     control_block_->process_state = PROCESS_STATE_SUSPENDED;
     
+    // Check if we should wait for debugger (Controller side)
+    wait_for_debugger_if_needed();
+
     return 0;
 }
 
@@ -554,6 +584,8 @@ int FridaController::attach(uint32_t pid) {
     pid_ = pid;
     state_ = PROCESS_STATE_ATTACHED;
     control_block_->process_state = PROCESS_STATE_ATTACHED;
+    
+    g_debug("[Controller] Attached to PID %u, detached signal connected\n", pid);
     
     return 0;
 }
@@ -627,6 +659,39 @@ int FridaController::pause() {
 // ============================================================================
 // Agent injection
 // ============================================================================
+
+static const char * frida_error_code_to_string(guint code) {
+    switch (code) {
+        case FRIDA_ERROR_SERVER_NOT_RUNNING:
+            return "FRIDA_ERROR_SERVER_NOT_RUNNING";
+        case FRIDA_ERROR_EXECUTABLE_NOT_FOUND:
+            return "FRIDA_ERROR_EXECUTABLE_NOT_FOUND";
+        case FRIDA_ERROR_EXECUTABLE_NOT_SUPPORTED:
+            return "FRIDA_ERROR_EXECUTABLE_NOT_SUPPORTED";
+        case FRIDA_ERROR_PROCESS_NOT_FOUND:
+            return "FRIDA_ERROR_PROCESS_NOT_FOUND";
+        case FRIDA_ERROR_PROCESS_NOT_RESPONDING:
+            return "FRIDA_ERROR_PROCESS_NOT_RESPONDING";
+        case FRIDA_ERROR_INVALID_ARGUMENT:
+            return "FRIDA_ERROR_INVALID_ARGUMENT";
+        case FRIDA_ERROR_INVALID_OPERATION:
+            return "FRIDA_ERROR_INVALID_OPERATION";
+        case FRIDA_ERROR_PERMISSION_DENIED:
+            return "FRIDA_ERROR_PERMISSION_DENIED";
+        case FRIDA_ERROR_ADDRESS_IN_USE:
+            return "FRIDA_ERROR_ADDRESS_IN_USE";
+        case FRIDA_ERROR_TIMED_OUT:
+            return "FRIDA_ERROR_TIMED_OUT";
+        case FRIDA_ERROR_NOT_SUPPORTED:
+            return "FRIDA_ERROR_NOT_SUPPORTED";
+        case FRIDA_ERROR_PROTOCOL:
+            return "FRIDA_ERROR_PROTOCOL";
+        case FRIDA_ERROR_TRANSPORT:
+            return "FRIDA_ERROR_TRANSPORT";
+        default:
+            return "Unknown frida error"; 
+    }
+}
 
 int FridaController::install_hooks() {
     if (!session_) {
@@ -860,6 +925,8 @@ int FridaController::install_hooks() {
 
     script_cancellable_ = ctx.cancellable;
 
+    auto load_start_time = std::chrono::steady_clock::now();
+
     frida_script_load(script_, ctx.cancellable,
                       on_script_load_finished, &ctx);
 
@@ -867,6 +934,9 @@ int FridaController::install_hooks() {
     g_timeout_add(timeout_ms, on_script_load_timeout_cb, &ctx);
 
     g_main_loop_run(ctx.loop);
+
+    auto load_end_time = std::chrono::steady_clock::now();
+    auto load_duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(load_end_time - load_start_time).count();
 
     script_cancellable_ = nullptr;
 
@@ -892,8 +962,12 @@ int FridaController::install_hooks() {
                        timeout_ms,
                        symbol_count);
         } else {
-            g_printerr("Failed to load script: %s\n", ctx.error->message);
+            g_printerr("Failed to load script: %s; domain: %s; code: %s\n", ctx.error->message, g_quark_to_string(ctx.error->domain), frida_error_code_to_string(ctx.error->code));
         }
+        g_printerr("Is timedout: %s\n", ctx.timed_out ? "yes" : "no");
+        g_printerr("Is completed: %s\n", ctx.completed ? "yes" : "no");
+        g_printerr("Load duration: %lld ms\n", load_duration_ms);
+        g_printerr("Timeout duration: %u ms\n", timeout_ms);
 
         g_error_free(ctx.error);
 
@@ -1047,10 +1121,84 @@ void FridaController::on_detached(FridaSessionDetachReason reason, FridaCrash* c
     }
 }
 
+// ============================================================================
+// Internal Helpers
+// ============================================================================
+
+static std::string unescape_json_string(const std::string& s) {
+    std::string res;
+    res.reserve(s.length());
+    for (size_t i = 0; i < s.length(); i++) {
+        if (s[i] == '\\' && i + 1 < s.length()) {
+            switch (s[i+1]) {
+                case '"': res += '"'; break;
+                case '\\': res += '\\'; break;
+                case '/': res += '/'; break;
+                case 'b': res += '\b'; break;
+                case 'f': res += '\f'; break;
+                case 'n': res += '\n'; break;
+                case 'r': res += '\r'; break;
+                case 't': res += '\t'; break;
+                default: res += s[i]; res += s[i+1]; break; // Unknown escape, keep raw
+            }
+            i++;
+        } else {
+            res += s[i];
+        }
+    }
+    return res;
+}
+
+static std::string json_get_string(const std::string& json, const std::string& key) {
+    std::string key_pattern = "\"" + key + "\":";
+    size_t pos = json.find(key_pattern);
+    if (pos == std::string::npos) return "";
+    
+    pos += key_pattern.length();
+    // Skip whitespace
+    while (pos < json.length() && isspace(json[pos])) pos++;
+    
+    if (pos >= json.length()) return "";
+    
+    if (json[pos] == '"') {
+        // String value
+        pos++;
+        size_t end = pos;
+        while (end < json.length()) {
+            if (json[end] == '"' && json[end-1] != '\\') break;
+            end++;
+        }
+        return unescape_json_string(json.substr(pos, end - pos));
+    }
+    
+    // Non-string value (boolean, number, null) - simplistic extraction
+    size_t end = pos;
+    while (end < json.length() && (isalnum(json[end]) || json[end] == '.')) end++;
+    return json.substr(pos, end - pos);
+}
+
 void FridaController::on_message(const gchar* message, GBytes* data) {
     (void)data;
     if (!message) {
         return;
+    }
+
+    // Handle console.log/error from script
+    std::string msg(message);
+    std::string type = json_get_string(msg, "type");
+    
+    if (type == "log") {
+        std::string level = json_get_string(msg, "level");
+        std::string payload = json_get_string(msg, "payload");
+        
+        FILE* target = (level == "error") ? stderr : stdout;
+        fprintf(target, "[Script] %s\n", payload.c_str());
+        fflush(target);
+    } else if (type == "error") {
+        std::string desc = json_get_string(msg, "description");
+        std::string stack = json_get_string(msg, "stack");
+        fprintf(stderr, "[Script Error] %s\n%s\n", desc.c_str(), stack.c_str());
+        fflush(stderr);
     }
 
     g_debug("Script message: %s\n", message);

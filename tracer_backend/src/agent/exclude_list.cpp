@@ -116,15 +116,6 @@ bool ada_exclude_contains(AdaExcludeList* xs, const char* name) {
 void ada_exclude_add_defaults(AdaExcludeList* xs) {
     // Hotspots and reentrancy-prone APIs (platform-agnostic subset)
     const char* defaults[] = {
-        "malloc", "free", "calloc", "realloc",
-        "memcpy", "memmove", "memset", "bzero",
-        "strcpy", "strncpy", "strlen", "strcmp",
-        "objc_msgSend", "objc_release", "objc_retain",
-        "pthread_mutex_lock", "pthread_mutex_unlock",
-        "pthread_once", "pthread_create",
-        "gum_interceptor_attach", "gum_interceptor_detach",
-        "gum_interceptor_begin_transaction", "gum_interceptor_end_transaction",
-        "_malloc", "_free", // symbol variations
         nullptr
     };
     for (const char** p = defaults; *p; ++p) {

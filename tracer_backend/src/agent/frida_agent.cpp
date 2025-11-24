@@ -11,6 +11,7 @@
 #include <string>
 #include <functional>
 
+
 // System headers
 #include <unistd.h>
 #include <pthread.h>
@@ -45,6 +46,12 @@ extern "C" {
 extern "C" {
 void on_enter_callback(GumInvocationContext* ic, gpointer user_data);
 void on_leave_callback(GumInvocationContext* ic, gpointer user_data);
+
+__attribute__((visibility("default")))
+void agent_init(const gchar* data, gint data_size);
+
+__attribute__((destructor))
+static void agent_deinit();
 }
 
 namespace ada {
@@ -65,12 +72,74 @@ static bool g_agent_verbose = [](){
     return e && e[0] != '\0' && e[0] != '0';
 }();
 
+// Global flag to prevent hooks from running during shutdown
+static std::atomic<bool> g_agent_shutting_down{false};
+
+// ============================================================================
+// Logging System
+// ============================================================================
+
+enum LogCategory {
+    LOG_NONE          = 0,
+    LOG_LIFECYCLE     = 1 << 0,  // 0x01 - Agent init, deinit, major state changes
+    LOG_HOOK_INSTALL  = 1 << 1,  // 0x02 - Hook installation, planning, attachment
+    LOG_HOOK_SUMMARY  = 1 << 2,  // 0x04 - Hook summary (success/fail counts)
+    LOG_CALLBACKS     = 1 << 3,  // 0x08 - on_enter, on_leave function calls
+    LOG_EVENTS        = 1 << 4,  // 0x10 - Event capture, ring buffer writes
+    LOG_ALL           = 0xFFFFFFFF
+};
+
+// Log level control - bitmask of enabled categories
+// Default: lifecycle and hooks enabled, callbacks and events disabled
+static uint32_t g_log_enabled = LOG_LIFECYCLE | LOG_HOOK_SUMMARY;
+
+[[maybe_unused]]
+static void agent_log_cat(uint32_t category, const char* format, ...) {
+    // Check if this category is enabled
+    if (!(g_log_enabled & category)) {
+        return;
+    }
+    
+    // Prevent recursion
+    static thread_local bool in_log = false;
+    if (in_log) return;
+    in_log = true;
+
+    char buffer[1024];
+    va_list args;
+    va_start(args, format);
+    int len = vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+    
+    if (len > 0) {
+        if ((size_t)len > sizeof(buffer)) len = sizeof(buffer);
+        write(STDERR_FILENO, buffer, len);
+    }
+    
+    in_log = false;
+}
+
+// Convenience macros for each category
+#ifndef NDEBUG
+#define LOG_LIFECYCLE(...) agent_log_cat(ada::internal::LOG_LIFECYCLE, __VA_ARGS__)
+#define LOG_HOOK_INSTALL(...) agent_log_cat(ada::internal::LOG_HOOK_INSTALL, __VA_ARGS__)
+#define LOG_HOOK_SUMMARY(...) agent_log_cat(ada::internal::LOG_HOOK_SUMMARY, __VA_ARGS__)
+#define LOG_CALLBACKS(...) agent_log_cat(ada::internal::LOG_CALLBACKS, __VA_ARGS__)
+#define LOG_EVENTS(...) agent_log_cat(ada::internal::LOG_EVENTS, __VA_ARGS__)
+#else
+#define LOG_LIFECYCLE(...) do {} while(0)
+#define LOG_HOOK_INSTALL(...) do {} while(0)
+#define LOG_HOOK_SUMMARY(...) do {} while(0)
+#define LOG_CALLBACKS(...) do {} while(0)
+#define LOG_EVENTS(...) do {} while(0)
+#endif
+
 // For initialization parsing
 static uint32_t g_host_pid = UINT32_MAX;
 static uint32_t g_session_id = UINT32_MAX;
 static char g_exclude_csv[256] = {0};
 
-// Signal handling for safe stack capture
+
 static volatile sig_atomic_t g_segfault_occurred = 0;
 
 // ============================================================================
@@ -89,6 +158,17 @@ ThreadLocalData::ThreadLocalData()
 }
 
 // ============================================================================
+// HookData Implementation
+// ============================================================================
+
+HookData::~HookData() {
+    if (listener) {
+        g_object_unref(listener);
+        listener = nullptr;
+    }
+}
+
+// ============================================================================
 // SharedMemoryRef Implementation  
 // ============================================================================
 
@@ -97,9 +177,23 @@ SharedMemoryRef::~SharedMemoryRef() {
 }
 
 void SharedMemoryRef::cleanup() {
+    const char* msg_start = "[Agent] SharedMemoryRef::cleanup called\n";
+    write(2, msg_start, strlen(msg_start));
+    
     if (ref_) {
+        char buf[128];
+        int len = snprintf(buf, sizeof(buf), "[Agent] SharedMemoryRef::cleanup destroying %p\n", ref_);
+        write(2, buf, len);
+        
         shared_memory_destroy(reinterpret_cast<::SharedMemoryRef>(ref_));
+        
+        const char* msg_done = "[Agent] SharedMemoryRef::cleanup destroyed\n";
+        write(2, msg_done, strlen(msg_done));
+        
         ref_ = nullptr;
+    } else {
+        const char* msg_null = "[Agent] SharedMemoryRef::cleanup skipped (ref is null)\n";
+        write(2, msg_null, strlen(msg_null));
     }
 }
 
@@ -128,8 +222,21 @@ SharedMemoryRef SharedMemoryRef::open_unique(uint32_t role, uint32_t host_pid,
 
 // Custom deleter for RingBuffer
 static void ring_buffer_deleter(ada::internal::RingBuffer* rb) {
+    const char* msg_start = "[Agent] ring_buffer_deleter called\n";
+    write(2, msg_start, strlen(msg_start));
+
     if (rb) {
+        char buf[128];
+        int len = snprintf(buf, sizeof(buf), "[Agent] ring_buffer_deleter destroying %p\n", rb);
+        write(2, buf, len);
+        
         ring_buffer_destroy(reinterpret_cast<::RingBuffer*>(rb));
+        
+        const char* msg_done = "[Agent] ring_buffer_deleter destroyed\n";
+        write(2, msg_done, strlen(msg_done));
+    } else {
+        const char* msg_null = "[Agent] ring_buffer_deleter skipped (rb is null)\n";
+        write(2, msg_null, strlen(msg_null));
     }
 }
 
@@ -154,47 +261,67 @@ AgentContext::AgentContext()
     agent_mode_state_.last_seen_epoch = 0;
 }
 
+// Global flag to prevent reentrancy during hook installation
+static std::atomic<bool> g_is_installing_hooks{false};
+
+// ============================================================================
+// Categorized Logging System
+// ============================================================================
+
+// Helper to pause process for debugger attachment
+static void wait_for_debugger() {
+    if (getenv("ADA_WAIT_FOR_DEBUGGER")) {
+        LOG_LIFECYCLE("[Agent] Waiting for debugger... (PID: %d)\n", getpid());
+        LOG_LIFECYCLE("[Agent] Run: lldb -p %d\n", getpid());
+        LOG_LIFECYCLE("[Agent] Or use VS Code 'Attach to Process'\n");
+        
+        // On macOS/Linux, SIGSTOP pauses the process. 
+        // A debugger can attach and then send SIGCONT (or just 'continue').
+        raise(SIGSTOP);
+        
+        LOG_LIFECYCLE("[Agent] Debugger attached! Resuming...\n");
+    }
+}
+
 AgentContext::~AgentContext() {
-    if (g_agent_verbose) g_debug("[Agent] Shutting down (emitted=%llu events, blocked=%llu reentrancy)\n",
+    g_agent_shutting_down = true;
+    
+    LOG_LIFECYCLE("[Agent] Shutting down (emitted=%llu events, blocked=%llu reentrancy)\n",
             static_cast<unsigned long long>(events_emitted_.load()),
             static_cast<unsigned long long>(reentrancy_blocked_.load()));
     
     // Print final statistics
-    if (g_agent_verbose) g_debug("[Agent] Final stats: events_emitted=%llu, reentrancy_blocked=%llu, "
+    LOG_LIFECYCLE("[Agent] Final stats: events_emitted=%llu, reentrancy_blocked=%llu, "
             "stack_failures=%llu\n",
             static_cast<unsigned long long>(events_emitted_.load()),
             static_cast<unsigned long long>(reentrancy_blocked_.load()),
             static_cast<unsigned long long>(stack_capture_failures_.load()));
     
-    // Cleanup Frida interceptor
-    if (interceptor_) {
-        g_object_unref(interceptor_);
-        interceptor_ = nullptr;
-    }
-    
+    // Interceptor is cleaned up by unique_ptr
     // Ring buffers and shared memory are cleaned up by destructors
+    LOG_LIFECYCLE("[Agent] AgentContext did destruct\n");
 }
 
 bool AgentContext::initialize(uint32_t host_pid, uint32_t session_id) {
     host_pid_ = host_pid;
     session_id_ = session_id;
     
-    g_debug("[Agent] Initializing with host_pid=%u, session_id=%u\n", 
+    LOG_LIFECYCLE("[Agent] Initializing with host_pid=%u, session_id=%u\n", 
             host_pid_, session_id_);
     
     if (!open_shared_memory()) {
-        g_debug("[Agent] Failed to open shared memory\n");
+        LOG_LIFECYCLE("[Agent] Failed to open shared memory\n");
         return false;
     }
     
     if (!attach_ring_buffers()) {
-        g_debug("[Agent] Failed to attach ring buffers\n");
+        LOG_LIFECYCLE("[Agent] Failed to attach ring buffers\n");
         return false;
     }
     
     // Get Frida interceptor
-    interceptor_ = gum_interceptor_obtain();
-    g_debug("[Agent] Got interceptor: %p\n", interceptor_);
+    interceptor_.reset(gum_interceptor_obtain());
+    LOG_LIFECYCLE("[Agent] Got interceptor: %p\n", interceptor_.get());
 
     // Build exclude list (defaults + custom)
     // Note: exclude list is used by hook installation to skip hot paths
@@ -209,18 +336,15 @@ bool AgentContext::initialize(uint32_t host_pid, uint32_t session_id) {
         if (env_ex && *env_ex) {
             ada_exclude_add_from_csv(xs, env_ex);
         }
-        // Stash as a listener-specific user_data via HookData when needed
-        // (We keep xs alive for process lifetime by leaking it intentionally
-        //  as agent teardown is process exit.)
     }
 
     return true;
 }
 
 bool AgentContext::open_shared_memory() {
-    if (ada::internal::g_agent_verbose) g_debug("[Agent] Opening shared memory segments...\n");
+    if (ada::internal::g_agent_verbose) LOG_LIFECYCLE("[Agent] Opening shared memory segments...\n");
 
-    g_debug("[Agent] Attempting to open shared memory with host_pid=%u, session_id=0x%08x\n",
+    LOG_LIFECYCLE("[Agent] Attempting to open shared memory with host_pid=%u, session_id=0x%08x\n",
             host_pid_, session_id_);
 
     shm_control_ = SharedMemoryRef::open_unique(0, host_pid_,
@@ -232,18 +356,18 @@ bool AgentContext::open_shared_memory() {
 
     if (!shm_control_.is_valid() || !shm_index_.is_valid() ||
         !shm_detail_.is_valid()) {
-        g_debug("[Agent] Failed to open shared memory (control=%d, index=%d, detail=%d)\n",
+        LOG_LIFECYCLE("[Agent] Failed to open shared memory (control=%d, index=%d, detail=%d)\n",
                 shm_control_.is_valid() ? 1 : 0,
                 shm_index_.is_valid() ? 1 : 0,
                 shm_detail_.is_valid() ? 1 : 0);
         return false;
     }
     
-    if (ada::internal::g_agent_verbose) g_debug("[Agent] Successfully opened all shared memory segments\n");
+    if (ada::internal::g_agent_verbose) LOG_LIFECYCLE("[Agent] Successfully opened all shared memory segments\n");
     
     // Map control block
     control_block_ = static_cast<ControlBlock*>(shm_control_.get_address());
-    if (ada::internal::g_agent_verbose) g_debug("[Agent] Control block mapped at %p\n", control_block_);
+    if (ada::internal::g_agent_verbose) LOG_LIFECYCLE("[Agent] Control block mapped at %p\n", control_block_);
     // Map SHM directory bases (if published)
     if (control_block_) {
         (void)shm_dir_map_local_bases(&control_block_->shm_directory);
@@ -269,16 +393,16 @@ bool AgentContext::open_shared_memory() {
             ::ThreadRegistry* reg_handle = thread_registry_attach(addr);
             if (reg_handle) {
                 ada_set_global_registry(reg_handle);
-                if (ada::internal::g_agent_verbose) g_debug("[Agent] Attached thread registry at %p (size=%zu)\n", addr, registry_size);
+                if (ada::internal::g_agent_verbose) LOG_LIFECYCLE("[Agent] Attached thread registry at %p (size=%zu)\n", addr, registry_size);
                 shm_registry_ = std::move(shm_reg);
             } else {
-                g_debug("[Agent] Failed to attach thread registry at %p\n", addr);
+                LOG_LIFECYCLE("[Agent] Failed to attach thread registry at %p\n", addr);
             }
         } else {
-            if (ada::internal::g_agent_verbose) g_debug("[Agent] Registry segment not found; running with process-global rings\n");
+            if (ada::internal::g_agent_verbose) LOG_LIFECYCLE("[Agent] Registry segment not found; running with process-global rings\n");
         }
     } else {
-        if (ada::internal::g_agent_verbose) g_debug("[Agent] Registry disabled by ADA_DISABLE_REGISTRY\n");
+        if (ada::internal::g_agent_verbose) LOG_LIFECYCLE("[Agent] Registry disabled by ADA_DISABLE_REGISTRY\n");
     }
 
     return true;
@@ -288,25 +412,25 @@ bool AgentContext::attach_ring_buffers() {
     void* index_addr = shm_index_.get_address();
     void* detail_addr = shm_detail_.get_address();
     
-    g_debug("[Agent] Ring buffer addresses: index=%p, detail=%p\n", 
+    LOG_LIFECYCLE("[Agent] Ring buffer addresses: index=%p, detail=%p\n", 
             index_addr, detail_addr);
     
     // Attach to existing ring buffers
     auto* index_rb = ring_buffer_attach(index_addr, 32 * 1024 * 1024, 
                                         sizeof(IndexEvent));
     index_ring_.reset(reinterpret_cast<ada::internal::RingBuffer*>(index_rb));
-    g_debug("[Agent] Index ring attached: %p\n", index_ring_.get());
+    LOG_LIFECYCLE("[Agent] Index ring attached: %p\n", index_ring_.get());
     
     auto* detail_rb = ring_buffer_attach(detail_addr, 32 * 1024 * 1024, 
                                          sizeof(DetailEvent));
     detail_ring_.reset(reinterpret_cast<ada::internal::RingBuffer*>(detail_rb));
-    g_debug("[Agent] Detail ring attached: %p\n", detail_ring_.get());
+    LOG_LIFECYCLE("[Agent] Detail ring attached: %p\n", detail_ring_.get());
     
     return index_ring_ && detail_ring_;
 }
 
 void AgentContext::hook_function(const char* name) {
-    if (ada::internal::g_agent_verbose) g_debug("[Agent] Finding symbol: %s\n", name);
+    if (ada::internal::g_agent_verbose) LOG_HOOK_INSTALL("[Agent] Finding symbol: %s\n", name);
     num_hooks_attempted_++;
     
     // Generate stable function ID from name
@@ -320,7 +444,7 @@ void AgentContext::hook_function(const char* name) {
     hook_results_.emplace_back(name, func_addr, function_id, func_addr != 0);
     
     if (func_addr != 0) {
-        g_debug("[Agent] Found symbol: %s at 0x%llx\n", name, func_addr);
+        LOG_HOOK_INSTALL("[Agent] Found symbol: %s at 0x%llx\n", name, func_addr);
         
         // Create hook data
         auto hook = std::make_unique<HookData>(this, function_id, name, func_addr);
@@ -336,7 +460,7 @@ void AgentContext::hook_function(const char* name) {
         );
         hook_ptr->listener = listener;  // Store listener to keep it alive
 
-        gum_interceptor_attach(interceptor_,
+        gum_interceptor_attach(interceptor_.get(),
                               GSIZE_TO_POINTER(func_addr),
                               listener,
                               nullptr,
@@ -344,11 +468,11 @@ void AgentContext::hook_function(const char* name) {
 
         num_hooks_successful_++;
         
-        if (ada::internal::g_agent_verbose) g_debug("[Agent] Hooked: %s at 0x%llx (id=%llu)\n", name,
+        if (ada::internal::g_agent_verbose) LOG_HOOK_INSTALL("[Agent] Hooked: %s at 0x%llx (id=%llu)\n", name,
                 static_cast<unsigned long long>(func_addr),
                 static_cast<unsigned long long>(function_id));
     } else {
-        if (ada::internal::g_agent_verbose) g_debug("[Agent] Failed to find: %s\n", name);
+        if (ada::internal::g_agent_verbose) LOG_HOOK_INSTALL("[Agent] Failed to find: %s\n", name);
     }
 }
 
@@ -358,7 +482,9 @@ struct ExportEntry { std::string name; };
 static gboolean collect_exports_cb(const GumExportDetails* details, gpointer user_data) {
     auto* vec = reinterpret_cast<std::vector<ExportEntry>*>(user_data);
     if (details != nullptr && details->name != nullptr && details->name[0] != '\0') {
-        vec->push_back(ExportEntry{details->name});
+        if (details->type == GUM_EXPORT_FUNCTION) {
+            vec->push_back(ExportEntry{details->name});
+        }
     }
     return TRUE;
 }
@@ -405,14 +531,14 @@ static GumAddress resolve_export_address(GumModule* mod, const std::string& sym)
 }
 
 void AgentContext::install_hooks() {
-    g_debug("[Agent] install_hooks() entered\n");
+    LOG_HOOK_INSTALL("[Agent] install_hooks() entered\n");
 
     // CRITICAL: Always signal hooks_ready at the end, even if no hooks installed
     // This prevents controller timeout when ADA_SKIP_DSO_HOOKS=1 or no hookable functions
     auto set_hooks_ready_guard = [this]() {
         if (control_block_) {
             __atomic_store_n(&control_block_->hooks_ready, 1, __ATOMIC_RELEASE);
-            g_debug("[Agent] Set hooks_ready flag in control block\n");
+            LOG_HOOK_INSTALL("[Agent] Set hooks_ready flag in control block\n");
         }
     };
 
@@ -422,25 +548,38 @@ void AgentContext::install_hooks() {
         ~HooksReadyGuard() { if (cleanup) cleanup(); }
     } guard{set_hooks_ready_guard};
 
-    gum_interceptor_begin_transaction(interceptor_);
-    g_debug("[Agent] Beginning comprehensive hook installation...\n");
-
-    // Build exclude list (defaults + overrides)
-    g_debug("[Agent] Creating exclude list...\n");
+    // Build exclude list (defaults + overrides) BEFORE transaction
+    LOG_HOOK_INSTALL("[Agent] Creating exclude list...\n");
     AdaExcludeList* xs = ada_exclude_create(256);
     if (xs) {
         ada_exclude_add_defaults(xs);
         if (g_exclude_csv[0] != '\0') ada_exclude_add_from_csv(xs, g_exclude_csv);
         const char* env_ex = getenv("ADA_EXCLUDE");
         if (env_ex && *env_ex) ada_exclude_add_from_csv(xs, env_ex);
+        
+        // Capture agent path for self-exclusion
+        GumModuleMap* map = gum_module_map_new();
+        GumModule* agent_mod = gum_module_map_find(map, GUM_ADDRESS(agent_init));
+        if (agent_mod) {
+            const char* path = gum_module_get_path(agent_mod);
+            if (path) {
+                agent_path_ = path;
+                LOG_HOOK_INSTALL("[Agent] Identified agent module path: %s\n", agent_path_.c_str());
+            }
+        }
+        g_object_unref(map);
     }
 
+    gum_interceptor_begin_transaction(interceptor_.get());
+    g_is_installing_hooks.store(true);
+    LOG_HOOK_INSTALL("[Agent] Beginning comprehensive hook installation...\n");
+
     // Registry assigns per-module stable IDs
-    g_debug("[Agent] Creating hook registry...\n");
+    LOG_HOOK_INSTALL("[Agent] Creating hook registry...\n");
     ada::agent::HookRegistry registry;
 
     // Enumerate main module first
-    g_debug("[Agent] Getting main module...\n");
+    LOG_HOOK_INSTALL("[Agent] Getting main module...\n");
     GumModule* main_mod = gum_process_get_main_module();
     std::vector<ExportEntry> main_exports_entries;
     if (main_mod) {
@@ -457,42 +596,42 @@ void AgentContext::install_hooks() {
     for (auto& e : main_exports_entries) {
         GumAddress a = resolve_export_address(main_mod, e.name);
         if (ada::internal::g_agent_verbose) {
-            g_debug("[Agent] Resolved main export %s -> 0x%llx\n", e.name.c_str(), (unsigned long long)a);
+            LOG_HOOK_INSTALL("[Agent] Resolved main export %s -> 0x%llx\n", e.name.c_str(), (unsigned long long)a);
         }
         main_addr.emplace(e.name, a);
     }
 
     // Hook planned symbols in main module
-    g_debug("[Agent] Main module has %zu planned hooks\n", main_plan.size());
+    LOG_HOOK_INSTALL("[Agent] Main module has %zu planned hooks\n", main_plan.size());
     for (const auto& entry : main_plan) {
         const auto it = main_addr.find(entry.symbol);
         num_hooks_attempted_++;
         if (it != main_addr.end() && it->second != 0) {
-            g_debug("[Agent] Hooking main symbol: %s at 0x%lx\n", entry.symbol.c_str(), (unsigned long)it->second);
+            LOG_HOOK_INSTALL("[Agent] Hooking main symbol: %s at 0x%lx\n", entry.symbol.c_str(), (unsigned long)it->second);
 
             // Verify the address looks valid
-            g_debug("[Agent] Creating hook for %s, function_id=%llu\n", entry.symbol.c_str(), (unsigned long long)entry.function_id);
+            LOG_HOOK_INSTALL("[Agent] Creating hook for %s, function_id=%llu\n", entry.symbol.c_str(), (unsigned long long)entry.function_id);
 
             auto hook = std::make_unique<HookData>(this, entry.function_id, entry.symbol, it->second);
             hooks_.push_back(std::move(hook));
             HookData* hook_ptr = hooks_.back().get();  // Get pointer after moving into vector
 
-            g_debug("[Agent] Creating listener with callbacks: on_enter=%p, on_leave=%p, data=%p\n",
+            LOG_HOOK_INSTALL("[Agent] Creating listener with callbacks: on_enter=%p, on_leave=%p, data=%p\n",
                     (void*)on_enter_callback, (void*)on_leave_callback, (void*)hook_ptr);
 
             GumInvocationListener* listener = gum_make_call_listener(on_enter_callback, on_leave_callback, hook_ptr, nullptr);
 
-            g_debug("[Agent] Created listener: %p\n", listener);
+            LOG_HOOK_INSTALL("[Agent] Created listener: %p\n", listener);
 
             hook_ptr->listener = listener;  // Store listener to keep it alive
 
-            GumAttachReturn ret = gum_interceptor_attach(interceptor_, GSIZE_TO_POINTER(it->second), listener, nullptr, GUM_ATTACH_FLAGS_NONE);
+            GumAttachReturn ret = gum_interceptor_attach(interceptor_.get(), GSIZE_TO_POINTER(it->second), listener, nullptr, GUM_ATTACH_FLAGS_NONE);
             if (ret == GUM_ATTACH_OK) {
-                g_debug("[Agent] Successfully attached hook to %s\n", entry.symbol.c_str());
+                LOG_HOOK_INSTALL("[Agent] Successfully attached hook to %s\n", entry.symbol.c_str());
                 hook_results_.emplace_back(entry.symbol, it->second, entry.function_id, true);
                 num_hooks_successful_++;
             } else {
-                g_debug("[Agent] Failed to attach hook to %s (error: %d)\n", entry.symbol.c_str(), ret);
+                LOG_HOOK_INSTALL("[Agent] Failed to attach hook to %s (error: %d)\n", entry.symbol.c_str(), ret);
                 hook_results_.emplace_back(entry.symbol, it->second, entry.function_id, false);
             }
         } else {
@@ -506,16 +645,42 @@ void AgentContext::install_hooks() {
     const char* skip_env = getenv("ADA_SKIP_DSO_HOOKS");
     if (skip_env && skip_env[0] == '1') {
         skip_dso_hooks = true;
-        g_debug("[Agent] Skipping DSO hooks as requested by ADA_SKIP_DSO_HOOKS=1\n");
+        LOG_HOOK_INSTALL("[Agent] Skipping DSO hooks as requested by ADA_SKIP_DSO_HOOKS=1\n");
     }
 
     GumModuleMap* map = skip_dso_hooks ? nullptr : gum_module_map_new();
     if (map) {
         GPtrArray* mods = gum_module_map_get_values(map);
         for (guint i = 0; mods && i < mods->len; i++) {
+            LOG_HOOK_INSTALL("[Agent] Install hooks to module at index %u/%u\n", i, mods->len);
             GumModule* mod = static_cast<GumModule*>(g_ptr_array_index(mods, i));
-            if (mod == main_mod) continue;
+            
             const char* path = gum_module_get_path(mod);
+            
+            if (path && strstr(path, "libc++.1.dylib")) {
+                LOG_HOOK_INSTALL("[Agent] Skipping install hooks to libc++.1.dylib module (validation test)\n");
+                continue;
+            }
+            if (path && strstr(path, "libc++abi.dylib")) {
+                LOG_HOOK_INSTALL("[Agent] Skipping install hooks to libc++abi.dylib module (validation test)\n");
+                continue;
+            }
+            if (path && strstr(path, "libsystem")) {
+                LOG_HOOK_INSTALL("[Agent] Skipping install hooks to libsystem*(%s) module (validation test)\n", path);
+                continue;
+            }
+            if (path && strstr(path, "libSystem.B.dylib")) {
+                LOG_HOOK_INSTALL("[Agent] Skipping install hooks to libSystem.B.dylib module (validation test)\n");
+                continue;
+            }
+            
+            // Dynamic self-exclusion: skip the agent's own module
+            if (path && !agent_path_.empty() && strcmp(path, agent_path_.c_str()) == 0) {
+                LOG_HOOK_INSTALL("[Agent] Skipping install hooks to agent module: %s (prevent self-hooking)\n", path);
+                continue;
+            }
+            
+            LOG_HOOK_INSTALL("[Agent] Install hooks to module %s\n", path ? path : "(unknown)");
             if (!path || path[0] == '\0') continue;
             std::vector<ExportEntry> exps;
             gum_module_enumerate_exports(mod, collect_exports_cb, &exps);
@@ -526,46 +691,68 @@ void AgentContext::install_hooks() {
                 names.push_back(e.name);
                 GumAddress a = resolve_export_address(mod, e.name);
                 if (ada::internal::g_agent_verbose) {
-                    g_debug("[Agent] Resolved DSO export %s -> 0x%llx\n", e.name.c_str(), (unsigned long long)a);
+                    // LOG_HOOK_INSTALL("[Agent] Resolved DSO export %s -> 0x%llx\n", e.name.c_str(), (unsigned long long)a); // Moved into resolve_export_address
                 }
                 addr.emplace(e.name, a);
             }
             auto plan = ada::agent::plan_module_hooks(path, names, xs, registry);
+            [[maybe_unused]] int32_t plan_index = 0;
             for (const auto& pe : plan) {
+                LOG_HOOK_INSTALL("[Agent] (%d/%zu) Will attach DSO hook to %s\n", plan_index, plan.size(), pe.symbol.c_str());
                 num_hooks_attempted_++;
                 auto it = addr.find(pe.symbol);
                 if (it != addr.end() && it->second != 0) {
                     auto hook = std::make_unique<HookData>(this, pe.function_id, pe.symbol, it->second);
                     hooks_.push_back(std::move(hook));
                     HookData* hook_ptr = hooks_.back().get();  // Get pointer after moving into vector
+                    LOG_HOOK_INSTALL("[Agent] (%d/%zu) Will make call listener for %s\n", plan_index, plan.size(), pe.symbol.c_str());
                     GumInvocationListener* listener = gum_make_call_listener(on_enter_callback, on_leave_callback, hook_ptr, nullptr);
                     hook_ptr->listener = listener;  // Store listener to keep it alive
-                    GumAttachReturn ret = gum_interceptor_attach(interceptor_, GSIZE_TO_POINTER(it->second), listener, nullptr, GUM_ATTACH_FLAGS_NONE);
+                    LOG_HOOK_INSTALL("[Agent] (%d/%zu) Will attach interceptor for %s\n", plan_index, plan.size(), pe.symbol.c_str());
+                    GumAttachReturn ret = gum_interceptor_attach(interceptor_.get(), GSIZE_TO_POINTER(it->second), listener, nullptr, GUM_ATTACH_FLAGS_NONE);
                     if (ret == GUM_ATTACH_OK) {
                         hook_results_.emplace_back(pe.symbol, it->second, pe.function_id, true);
                         num_hooks_successful_++;
+                        LOG_HOOK_INSTALL("[Agent] (%d/%zu) Attached DSO hook to %s\n", plan_index, plan.size(), pe.symbol.c_str());
                     } else {
-                        g_debug("[Agent] Failed to attach DSO hook to %s (error: %d)\n", pe.symbol.c_str(), ret);
                         hook_results_.emplace_back(pe.symbol, it->second, pe.function_id, false);
+                        LOG_HOOK_INSTALL("[Agent] (%d/%zu) Failed to attach DSO hook to %s (error: %d)\n", plan_index, plan.size(), pe.symbol.c_str(), ret);
                     }
                 } else {
+                    LOG_HOOK_INSTALL("[Agent] (%d/%zu) Skipped DSO hook to %s\n", plan_index, plan.size(), pe.symbol.c_str());
                     hook_results_.emplace_back(pe.symbol, 0, pe.function_id, false);
                 }
+                plan_index += 1;
             }
+            // agent_log("[Agent] Processes hook plan for module: %s\n", gum_module_get_path(static_cast<GumModule*>(mod)));
         }
+        // agent_log("[Agent] Processes hook plan for all modules.\n");
         g_object_unref(map);
     }
 
-    // End transaction
-    gum_interceptor_end_transaction(interceptor_);
+    LOG_HOOK_INSTALL("[Agent] hooks installation complete: %u/%u hooks installed\n",
+            num_hooks_successful_, num_hooks_attempted_);
 
-    // Cleanup exclude list
-    if (xs) ada_exclude_destroy(xs);
+    // End transaction
+    LOG_HOOK_INSTALL("[Agent] Ending transaction...\n");
+    gum_interceptor_end_transaction(interceptor_.get());
+    LOG_HOOK_INSTALL("[Agent] Transaction ended.\n");
+    
+    g_is_installing_hooks.store(false);
+    
+    // Clean up exclude list
+    if (xs) {
+        LOG_HOOK_INSTALL("[Agent] Destroying exclude list at %p...\n", xs);
+        ada_exclude_destroy(xs);
+        LOG_HOOK_INSTALL("[Agent] Exclude list destroyed.\n");
+    }
 
     // Send hook summary
+    LOG_HOOK_SUMMARY("[Agent] Sending hook summary...\n");
     send_hook_summary();
-
-    g_debug("[Agent] Initialization complete: %u/%u hooks installed\n",
+    LOG_HOOK_SUMMARY("[Agent] Hook summary sent.\n");
+    
+    LOG_HOOK_INSTALL("[Agent] Initialization complete: %u/%u hooks installed\n",
             num_hooks_successful_, num_hooks_attempted_);
 
     // hooks_ready flag is set by the RAII guard at function exit
@@ -574,16 +761,16 @@ void AgentContext::install_hooks() {
 void AgentContext::send_hook_summary() {
     // For now, just print the summary
     // TODO: Implement proper Frida messaging when API is available
-    if (ada::internal::g_agent_verbose) g_debug("[Agent] Hook Summary: attempted=%u, successful=%u, failed=%u\n",
+    if (ada::internal::g_agent_verbose) LOG_HOOK_SUMMARY("[Agent] Hook Summary: attempted=%u, successful=%u, failed=%u\n",
                 num_hooks_attempted_, num_hooks_successful_,
                 num_hooks_attempted_ - num_hooks_successful_);
     
-    for (const auto& result : hook_results_) {
-        g_debug("[Agent]   %s: address=0x%llx, id=%llu, %s\n", 
+    for ([[maybe_unused]] const auto& result : hook_results_) {
+        LOG_HOOK_SUMMARY("[Agent]   %s: address=0x%llx, id=%llu, %s\n", 
                 result.name.c_str(),
                 static_cast<unsigned long long>(result.address), 
                 static_cast<unsigned long long>(result.id),
-                result.success ? "hooked" : "failed");
+                result.success ? "SUCCESS" : "FAILED");
     }
 }
 
@@ -788,7 +975,7 @@ void parse_init_payload(const char* data, int data_size,
     }
 
     // Debug output for parsing results
-    g_debug("[Agent] Parsed init payload: host_pid=%u, session_id=0x%08x\n",
+    LOG_LIFECYCLE("[Agent] Parsed init payload: host_pid=%u, session_id=0x%08x\n",
             *out_host_pid, *out_session_id);
 }
 
@@ -799,19 +986,19 @@ void parse_init_payload(const char* data, int data_size,
 static void capture_index_event(AgentContext* ctx, HookData* hook,
                                ThreadLocalData* tls, EventKind kind) {
     if (!ctx->control_block()) {
-        g_debug("[Agent] Control block is NULL!\n");
+        LOG_EVENTS("[Agent] Control block is NULL!\n");
         return;
     }
 
     // Debug: Always log the actual value
-    g_debug("[Agent] Index lane enabled flag: %u\n", ctx->control_block()->index_lane_enabled);
+    LOG_EVENTS("[Agent] Index lane enabled flag: %u\n", ctx->control_block()->index_lane_enabled);
 
     if (!ctx->control_block()->index_lane_enabled) {
-        g_debug("[Agent] Index lane disabled (flag=%u)\n", ctx->control_block()->index_lane_enabled);
+        LOG_EVENTS("[Agent] Index lane disabled (flag=%u)\n", ctx->control_block()->index_lane_enabled);
         return;
     }
 
-    g_debug("[Agent] Capturing index event for %s (kind=%d)\n", hook->function_name.c_str(), kind);
+    LOG_EVENTS("[Agent] Capturing index event for %s (kind=%d)\n", hook->function_name.c_str(), kind);
     
     IndexEvent event = {};
     event.timestamp = platform_get_timestamp();
@@ -842,7 +1029,7 @@ static void capture_index_event(AgentContext* ctx, HookData* hook,
                 if (hdr) {
                     wrote_pt = ring_buffer_write_raw(hdr, sizeof(IndexEvent), &event);
                     if (wrote_pt) {
-                        g_debug("[Agent] Wrote index event (per-thread)\n");
+                        LOG_EVENTS("[Agent] Wrote index event (per-thread)\n");
                         ctx->increment_events_emitted();
                         if (metrics) {
                             ada_thread_metrics_record_event_written(metrics, sizeof(IndexEvent));
@@ -886,10 +1073,10 @@ static void capture_index_event(AgentContext* ctx, HookData* hook,
     }
 
     if (wrote) {
-        g_debug("[Agent] Wrote index event\n");
+        LOG_EVENTS("[Agent] Wrote index event\n");
         ctx->increment_events_emitted();
     } else {
-        g_debug("[Agent] Failed to write index event\n");
+        LOG_EVENTS("[Agent] Failed to write index event\n");
     }
 }
 
@@ -897,11 +1084,11 @@ static void capture_detail_event(AgentContext* ctx, HookData* hook,
                                 ThreadLocalData* tls, EventKind kind,
                                 GumCpuContext* cpu) {
     if (!ctx->control_block()->detail_lane_enabled) {
-        g_debug("[Agent] Detail lane disabled\n");
+        LOG_EVENTS("[Agent] Detail lane disabled\n");
         return;
     }
     
-    g_debug("[Agent] Capturing detail event\n");
+    LOG_EVENTS("[Agent] Capturing detail event\n");
     
     DetailEvent detail = {};
     detail.timestamp = platform_get_timestamp();
@@ -979,7 +1166,7 @@ static void capture_detail_event(AgentContext* ctx, HookData* hook,
                 if (hdr) {
                     wrote_pt = ring_buffer_write_raw(hdr, sizeof(DetailEvent), &detail);
                     if (wrote_pt) {
-                        g_debug("[Agent] Wrote detail event (per-thread)\n");
+                        LOG_EVENTS("[Agent] Wrote detail event (per-thread)\n");
                         ctx->increment_events_emitted();
                         if (metrics) {
                             ada_thread_metrics_record_event_written(metrics, sizeof(DetailEvent));
@@ -1020,10 +1207,10 @@ static void capture_detail_event(AgentContext* ctx, HookData* hook,
     }
 
     if (wrote) {
-        g_debug("[Agent] Wrote detail event\n");
+        LOG_EVENTS("[Agent] Wrote detail event\n");
         ctx->increment_events_emitted();
     } else {
-        g_debug("[Agent] Failed to write detail event\n");
+        LOG_EVENTS("[Agent] Failed to write detail event\n");
     }
 }
 
@@ -1031,33 +1218,35 @@ static void capture_detail_event(AgentContext* ctx, HookData* hook,
 extern "C" {
 
 void on_enter_callback(GumInvocationContext* ic, gpointer user_data) {
+    // Prevent execution during shutdown
+    if (g_agent_shutting_down) return;
+
+    // Prevent reentrancy during hook installation (e.g. from agent_log calls)
+    // Check global flag FIRST before touching any user_data which might be unstable
+    if (g_is_installing_hooks.load(std::memory_order_acquire)) return;
+
+    auto* hook = static_cast<HookData*>(user_data);
+    if (!hook || !hook->context) return;
+
     // Immediate debug output to verify callback is reached
-    fprintf(stderr, "[HOOK] on_enter_callback FIRED!\n");
-    fflush(stderr);
+    LOG_CALLBACKS("[HOOK] on_enter_callback FIRED!\n");
 
     // Simple test: just increment a counter
     static std::atomic<uint64_t> s_enter_count{0};
     uint64_t count = s_enter_count.fetch_add(1) + 1;
     if (count == 1 || count % 100 == 0) {
-        fprintf(stderr, "[Agent] on_enter called (count=%llu)\n", (unsigned long long)count);
-        fflush(stderr);
-    }
-
-    auto* hook = static_cast<HookData*>(user_data);
-    if (!hook) {
-        g_debug("[Agent] ERROR: hook is NULL in on_enter!\n");
-        return;
+        LOG_CALLBACKS("[Agent] on_enter called (count=%llu)\n", (unsigned long long)count);
     }
 
     auto* ctx = hook->context;
     if (!ctx) {
-        g_debug("[Agent] ERROR: context is NULL in on_enter!\n");
+        LOG_CALLBACKS("[Agent] ERROR: context is NULL in on_enter!\n");
         return;
     }
 
     auto* tls = get_thread_local();
     if (!tls) {
-        g_debug("[Agent] ERROR: TLS is NULL in on_enter!\n");
+        LOG_CALLBACKS("[Agent] ERROR: TLS is NULL in on_enter!\n");
         return;
     }
 
@@ -1069,7 +1258,7 @@ void on_enter_callback(GumInvocationContext* ic, gpointer user_data) {
     }
     tls->enter_handler();
 
-    // g_debug("[Agent] on_enter: %s (tid=%u)\n", hook->function_name.c_str(), tls->thread_id());
+    // agent_log("[Agent] on_enter: %s (tid=%u)\n", hook->function_name.c_str(), tls->thread_id());
 
     // Tick agent mode state machine before captures
     const uint64_t now_ns = platform_get_timestamp();
@@ -1089,7 +1278,15 @@ void on_enter_callback(GumInvocationContext* ic, gpointer user_data) {
 }
 
 void on_leave_callback(GumInvocationContext* ic, gpointer user_data) {
+    // Prevent execution during shutdown
+    if (g_agent_shutting_down) return;
+
+    // Prevent reentrancy during hook installation
+    if (g_is_installing_hooks.load(std::memory_order_acquire)) return;
+
     auto* hook = static_cast<HookData*>(user_data);
+    if (!hook || !hook->context) return;
+
     auto* ctx = hook->context;
     auto* tls = get_thread_local();
     if (!tls) return;
@@ -1102,7 +1299,7 @@ void on_leave_callback(GumInvocationContext* ic, gpointer user_data) {
     }
     tls->enter_handler();
     
-    if (ada::internal::g_agent_verbose) g_debug("[Agent] on_leave: %s\n", hook->function_name.c_str());
+    if (ada::internal::g_agent_verbose) LOG_CALLBACKS("[Agent] on_leave: %s\n", hook->function_name.c_str());
     
     // Tick agent mode state machine before captures
     const uint64_t now_ns = platform_get_timestamp();
@@ -1205,19 +1402,71 @@ uint32_t agent_estimate_hooks(void) {
         ada_exclude_destroy(xs);
     }
 
-    g_debug("[Agent] agent_estimate_hooks returning %u planned hooks\n", count);
+    LOG_HOOK_INSTALL("[Agent] agent_estimate_hooks returning %u planned hooks\n", count);
     return count;
+}
+
+// ============================================================================
+// Public API for log level control
+// ============================================================================
+
+// Enable/disable log categories at runtime using bitmask
+void agent_set_log_lifecycle(int enabled) {
+    if (enabled) {
+        ada::internal::g_log_enabled |= ada::internal::LOG_LIFECYCLE;
+    } else {
+        ada::internal::g_log_enabled &= ~ada::internal::LOG_LIFECYCLE;
+    }
+}
+
+void agent_set_log_hooks(int enabled) {
+    if (enabled) {
+        ada::internal::g_log_enabled |= (ada::internal::LOG_HOOK_INSTALL | ada::internal::LOG_HOOK_SUMMARY);
+    } else {
+        ada::internal::g_log_enabled &= ~(ada::internal::LOG_HOOK_INSTALL | ada::internal::LOG_HOOK_SUMMARY);
+    }
+}
+
+void agent_set_log_callbacks(int enabled) {
+    if (enabled) {
+        ada::internal::g_log_enabled |= ada::internal::LOG_CALLBACKS;
+    } else {
+        ada::internal::g_log_enabled &= ~ada::internal::LOG_CALLBACKS;
+    }
+}
+
+void agent_set_log_events(int enabled) {
+    if (enabled) {
+        ada::internal::g_log_enabled |= ada::internal::LOG_EVENTS;
+    } else {
+        ada::internal::g_log_enabled &= ~ada::internal::LOG_EVENTS;
+    }
+}
+
+// Set multiple categories at once
+void agent_set_log_mask(uint32_t mask) {
+    ada::internal::g_log_enabled = mask;
+}
+
+// Get current log mask
+uint32_t agent_get_log_mask() {
+    return ada::internal::g_log_enabled;
 }
 
 // Agent initialization - the main entry point called by Frida
 __attribute__((visibility("default")))
 void agent_init(const gchar* data, gint data_size) {
+    // Check for debugger wait request immediately
+    ada::internal::wait_for_debugger();
+
     // Initialize GUM first before using any GLib functions
     gum_init_embedded();
-
-    g_debug("[Agent] agent_init called! data_size=%d\n", data_size);
-
-    if (ada::internal::g_agent_verbose) g_debug("[Agent] Initializing with data size: %d\n", data_size);
+    // Ensure log mask is set up
+    // Default is LIFECYCLE | HOOKS
+    
+    LOG_LIFECYCLE("[Agent] agent_init called! data_size=%d\n", data_size);
+    
+    if (ada::internal::g_agent_verbose)     LOG_LIFECYCLE("[Agent] Initializing with data size: %d\n", data_size);
     
     // Parse initialization data
     uint32_t arg_host = 0, arg_sid = 0;
@@ -1225,37 +1474,52 @@ void agent_init(const gchar* data, gint data_size) {
     ada::internal::g_host_pid = arg_host;
     ada::internal::g_session_id = arg_sid;
     
-    if (ada::internal::g_agent_verbose) g_debug("[Agent] Parsed host_pid=%u, session_id=%u\n", 
+    if (ada::internal::g_agent_verbose)     LOG_LIFECYCLE("[Agent] Parsed host_pid=%u, session_id=%u\n", 
             ada::internal::g_host_pid, ada::internal::g_session_id);
     
     // Get singleton context (thread-safe, initialized once)
-    auto* ctx = ada::internal::get_agent_context();
-    
-    if (!ctx) {
-        g_debug("[Agent] Failed to create agent context\n");
-        return;
+    // Note: We use the global unique_ptr directly here as we are in the same translation unit
+    // and friend/namespace access allows it.
+    if (!ada::internal::g_agent_context) {
+        ada::internal::g_agent_context = std::make_unique<ada::internal::AgentContext>();
     }
     
+    // Initialize context
+    if (!ada::internal::g_agent_context->initialize(ada::internal::g_host_pid, ada::internal::g_session_id)) {
+        LOG_LIFECYCLE("[Agent] Failed to create agent context\n");
+        return;
+    }
+
     // Install hooks
-    g_debug("[Agent] About to install hooks...\n");
-    ctx->install_hooks();
-    g_debug("[Agent] Hooks installation completed\n");
+    LOG_LIFECYCLE("[Agent] About to install hooks...\n");
+    ada::internal::g_agent_context->install_hooks();
+    LOG_LIFECYCLE("[Agent] Hooks installation completed\n");
 }
 
 // Agent cleanup
 __attribute__((destructor)) 
-void agent_deinit() {
+static void agent_deinit() {
+    LOG_LIFECYCLE("[Agent] Begin to deinit\n");
     bool needs_reset = false;
     {
-        std::lock_guard<std::mutex> lock(ada::internal::g_context_mutex);
-        needs_reset = ada::internal::g_agent_context.get() != nullptr;
-        ada::internal::g_agent_context.reset();
+        // Check if context exists and needs reset
+        LOG_LIFECYCLE("[Agent] Will destruct context\n");
+        needs_reset = (ada::internal::g_agent_context != nullptr);
     }
     
-    pthread_key_delete(ada::internal::g_tls_key);
     if (needs_reset) {
-        gum_deinit_embedded();
+        ada::internal::g_agent_context.reset();
+        LOG_LIFECYCLE("[Agent] Did destruct context (needs reset: %s)\n", needs_reset ? "true" : "false");
+    }
+    
+    LOG_LIFECYCLE("[Agent] Will deinit\n");
+    
+    if (needs_reset) {
+        LOG_LIFECYCLE("[Agent] Did deinit\n");
+    } else {
+        LOG_LIFECYCLE("[Agent] Did not deinit\n");
     }
 }
 
 } // extern "C"
+

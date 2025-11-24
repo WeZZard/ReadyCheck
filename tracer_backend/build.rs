@@ -769,6 +769,70 @@ fn main() {
         }
     }
 
+    // On macOS, fs::copy strips code signatures. Re-sign critical binaries and libraries.
+    #[cfg(target_os = "macos")]
+    {
+        let workspace_root = git_top_level(Path::new(env!("CARGO_MANIFEST_DIR")))
+            .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf());
+        let entitlements_path = workspace_root.join("utils/ada_entitlements.plist");
+        
+        if !entitlements_path.exists() {
+            println!("cargo:warning=Entitlements file not found at: {}", entitlements_path.display());
+        } else {
+            // Sign agent library
+            let agent_lib = predictable_dir.join("lib/libfrida_agent.dylib");
+            if agent_lib.exists() {
+                let status = Command::new("codesign")
+                    .arg("-s")
+                    .arg("-")
+                    .arg("--entitlements")
+                    .arg(&entitlements_path)
+                    .arg("--force")
+                    .arg(&agent_lib)
+                    .status();
+                
+                match status {
+                    Ok(s) if s.success() => {
+                        println!("cargo:info=Signed libfrida_agent.dylib with entitlements");
+                    }
+                    Ok(s) => {
+                        println!("cargo:warning=Failed to sign libfrida_agent.dylib: exit code {:?}", s.code());
+                    }
+                    Err(e) => {
+                        println!("cargo:warning=Failed to execute codesign for libfrida_agent.dylib: {}", e);
+                    }
+                }
+            }
+            
+            // Sign test binaries (test_cli, test_runloop)
+            for test_binary in ["test/test_cli", "test/test_runloop"].iter() {
+                let test_path = predictable_dir.join(test_binary);
+                if test_path.exists() {
+                    let status = Command::new("codesign")
+                        .arg("-s")
+                        .arg("-")
+                        .arg("--entitlements")
+                        .arg(&entitlements_path)
+                        .arg("--force")
+                        .arg(&test_path)
+                        .status();
+                    
+                    match status {
+                        Ok(s) if s.success() => {
+                            println!("cargo:info=Signed {} with entitlements", test_binary);
+                        }
+                        Ok(s) => {
+                            println!("cargo:warning=Failed to sign {}: exit code {:?}", test_binary, s.code());
+                        }
+                        Err(e) => {
+                            println!("cargo:warning=Failed to execute codesign for {}: {}", test_binary, e);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // Report the predictable directory location
     println!("cargo:info=");
     println!(

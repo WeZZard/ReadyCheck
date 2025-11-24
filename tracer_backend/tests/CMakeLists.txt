@@ -43,6 +43,13 @@ set_target_properties(test_cli PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
 )
 
+if(APPLE)
+    add_custom_command(TARGET test_cli POST_BUILD
+        COMMAND codesign -s - --entitlements "${CMAKE_SOURCE_DIR}/../utils/ada_entitlements.plist" --force $<TARGET_FILE:test_cli>
+        COMMENT "Signing test_cli with entitlements"
+    )
+endif()
+
 # test_runloop - RunLoop-based program for macOS-specific tests
 if(APPLE)
     add_executable(test_runloop fixtures/test_runloop.c)
@@ -53,6 +60,10 @@ if(APPLE)
     # Place in bin/ directory as build.rs expects
     set_target_properties(test_runloop PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+    )
+    add_custom_command(TARGET test_runloop POST_BUILD
+        COMMAND codesign -s - --entitlements "${CMAKE_SOURCE_DIR}/../utils/ada_entitlements.plist" --force $<TARGET_FILE:test_runloop>
+        COMMENT "Signing test_runloop with entitlements"
     )
 endif()
 

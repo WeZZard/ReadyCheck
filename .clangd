@@ -7,11 +7,10 @@ Diagnostics:
     Remove: [clang-analyzer-alpha*]
 
 Index:
-  Background: true
-  StandardLibrary: "system"
+  Background: Build
+  StandardLibrary: true
 
 InlayHints:
   Enabled: true
   ParameterNames: true
   DeducedTypes: true
-

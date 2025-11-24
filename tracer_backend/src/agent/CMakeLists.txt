@@ -76,3 +76,11 @@ set_target_properties(frida_agent PROPERTIES
     CXX_STANDARD_REQUIRED ON
     CXX_EXTENSIONS OFF
 )
+
+# Sign the agent library on macOS
+if(APPLE)
+    add_custom_command(TARGET frida_agent POST_BUILD
+        COMMAND codesign -s - --entitlements "${CMAKE_SOURCE_DIR}/../utils/ada_entitlements.plist" --force $<TARGET_FILE:frida_agent>
+        COMMENT "Signing frida_agent with entitlements"
+    )
+endif()

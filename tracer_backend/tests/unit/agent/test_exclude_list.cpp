@@ -12,15 +12,14 @@ TEST(exclude_list__create_and_destroy__then_ok, unit) {
     ada_exclude_destroy(xs);
 }
 
-TEST(exclude_list__defaults__then_contains_hotspots, unit) {
+TEST(exclude_list__defaults__then_empty, unit) {
     AdaExcludeList* xs = ada_exclude_create(16);
     ASSERT_NE(xs, nullptr);
     ada_exclude_add_defaults(xs);
-    EXPECT_TRUE(ada_exclude_contains(xs, "malloc"));
-    EXPECT_TRUE(ada_exclude_contains(xs, "free"));
-    EXPECT_TRUE(ada_exclude_contains(xs, "objc_msgSend"));
-    // Case-insensitive
-    EXPECT_TRUE(ada_exclude_contains(xs, "MeMcPy"));
+    // Defaults are now empty - verify no common symbols are excluded
+    EXPECT_FALSE(ada_exclude_contains(xs, "malloc"));
+    EXPECT_FALSE(ada_exclude_contains(xs, "free"));
+    EXPECT_FALSE(ada_exclude_contains(xs, "objc_msgSend"));
     ada_exclude_destroy(xs);
 }
 

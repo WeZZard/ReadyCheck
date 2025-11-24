@@ -10,7 +10,7 @@
 extern "C" {
 #endif
 
-// Opaque exclude list
+// Opaque exclude list for
 typedef struct AdaExcludeList AdaExcludeList;
 
 // Create/destroy
