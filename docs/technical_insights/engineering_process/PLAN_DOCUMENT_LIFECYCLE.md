@@ -8,8 +8,8 @@ All iteration plan documents (TECH_DESIGN.md, TEST_PLAN.md, BACKLOGS.md) should 
 
 ```yaml
 ---
-status: active | completed | superseded | abandoned
-superseded_by: M1_E5_I1_ATF_V2_WRITER  # if superseded
+status: active | completed | abandoned
+superseded_by: M1_E5_I1_ATF_V2_WRITER  # optional, if replaced by newer iteration
 date: 2025-01-XX
 reason: "Brief explanation"  # if abandoned or superseded
 ---
@@ -21,8 +21,9 @@ reason: "Brief explanation"  # if abandoned or superseded
 |--------|-------------|
 | **active** | Currently being worked on |
 | **completed** | Finished and accepted into the codebase |
-| **superseded** | Replaced by a newer iteration (link provided) |
 | **abandoned** | Not completed, with documented reason |
+
+**Note**: Do NOT use `status: superseded`. The progress tracking infrastructure relies on `status: completed` to function correctly. Instead, keep `status: completed` and add a `superseded_by` field to indicate that a newer iteration replaces this one.
 
 ## Append-Only Principle
 
@@ -49,7 +50,7 @@ When a plan needs to be replaced:
 **Old iteration** (`M1_E2_I3_TECH_DESIGN.md`):
 ```yaml
 ---
-status: superseded
+status: completed
 superseded_by: M1_E5_I1_ATF_V2_WRITER
 date_superseded: 2025-01-15
 reason: "Protobuf encoding overhead incompatible with streaming throughput requirements. Replaced with raw binary format."
@@ -58,6 +59,8 @@ reason: "Protobuf encoding overhead incompatible with streaming throughput requi
 # Original Tech Design Content
 (unchanged)
 ```
+
+Note: The `status` remains `completed` (not `superseded`) to maintain compatibility with progress tracking infrastructure. The `superseded_by` field indicates the replacement.
 
 **New iteration** (`M1_E5_I1_TECH_DESIGN.md`):
 ```yaml
@@ -101,22 +104,22 @@ When creating a new epic that supersedes iterations from completed epics:
 ```
 docs/progress_trackings/M1_NATIVE_AGENT_MVP/
 ├── M1_E2_INDEX_PIPELINE/
-│   └── M1_E2_I3_ATF_V4_WRITER/          <- superseded (header added)
+│   └── M1_E2_I3_ATF_V4_WRITER/          <- completed, superseded_by header added
 │       ├── M1_E2_I3_TECH_DESIGN.md
 │       ├── M1_E2_I3_TEST_PLAN.md
 │       └── M1_E2_I3_BACKLOGS.md
 ├── M1_E4_QUERY_ENGINE/
-│   └── M1_E4_I1_ATF_READER/             <- superseded (header added)
+│   └── M1_E4_I1_ATF_READER/             <- completed, superseded_by header added
 │       ├── M1_E4_I1_TECH_DESIGN.md
 │       ├── M1_E4_I1_TEST_PLAN.md
 │       └── M1_E4_I1_BACKLOGS.md
 └── M1_E5_ATF_V2/                         <- new epic
     ├── M1_E5_ATF_V2.md                   <- epic target doc
-    ├── M1_E5_I1_ATF_V2_WRITER/           <- new iteration
+    ├── M1_E5_I1_ATF_V2_WRITER/           <- new iteration (supersedes M1_E2_I3)
     │   ├── M1_E5_I1_TECH_DESIGN.md
     │   ├── M1_E5_I1_TEST_PLAN.md
     │   └── M1_E5_I1_BACKLOGS.md
-    └── M1_E5_I2_ATF_V2_READER/           <- new iteration
+    └── M1_E5_I2_ATF_V2_READER/           <- new iteration (supersedes M1_E4_I1)
         ├── M1_E5_I2_TECH_DESIGN.md
         ├── M1_E5_I2_TEST_PLAN.md
         └── M1_E5_I2_BACKLOGS.md
