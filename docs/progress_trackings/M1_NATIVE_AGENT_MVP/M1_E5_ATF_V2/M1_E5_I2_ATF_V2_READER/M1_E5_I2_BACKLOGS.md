@@ -174,6 +174,7 @@ supersedes: M1_E4_I1_ATF_READER
 - [ ] Test index-only sessions
 - [ ] Test corrupted file handling
 - [ ] Test large file handling (10M+ events)
+- [ ] Test crash recovery reads from footer (from M1_E5_I1 deferred)
 
 ## Cleanup Tasks
 
@@ -223,3 +224,24 @@ supersedes: M1_E4_I1_ATF_READER
 ### Depended By:
 - Query Engine JSON-RPC API (consumes reader)
 - MCP Server (uses query engine)
+
+## Deferred Items from M1_E5_I1
+
+The following items were deferred from M1_E5_I1 and require future iterations:
+
+### Requires Separate Integration Iteration:
+- **Drain Thread Integration** (ATF2-W-009)
+  - Create AtfThreadWriter per registered thread
+  - Drain index events from ring buffer to writer
+  - Drain detail events when detail recording active
+  - Handle session finalization on stop
+  - Coordinate with existing drain infrastructure
+
+### Requires Drain Thread Migration First:
+- **Remove Protobuf Dependencies** (ATF2-W-013)
+  - Remove protobuf-c from tracer_backend CMakeLists.txt
+  - Delete old ATF V4 writer code
+  - Verify clean build without protobuf
+
+### Performance Benchmarks (Future):
+- **Write throughput benchmark** - Validate 10M events/sec target
