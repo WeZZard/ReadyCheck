@@ -387,6 +387,32 @@ fn main() {
             "out/bin/test_atf_v4_writer_integration",
             "test/test_atf_v4_writer_integration",
         ),
+        // ATF v2 unit tests
+        ("build/test_atf_v2_layout", "test/test_atf_v2_layout"),
+        (
+            "build/tests/unit/atf/test_atf_v2_layout",
+            "test/test_atf_v2_layout",
+        ),
+        ("out/bin/test_atf_v2_layout", "test/test_atf_v2_layout"),
+        ("build/test_atf_v2_linking", "test/test_atf_v2_linking"),
+        (
+            "build/tests/unit/atf/test_atf_v2_linking",
+            "test/test_atf_v2_linking",
+        ),
+        ("out/bin/test_atf_v2_linking", "test/test_atf_v2_linking"),
+        ("build/test_atf_v2_error_handling", "test/test_atf_v2_error_handling"),
+        (
+            "build/tests/unit/atf/test_atf_v2_error_handling",
+            "test/test_atf_v2_error_handling",
+        ),
+        ("out/bin/test_atf_v2_error_handling", "test/test_atf_v2_error_handling"),
+        // ATF v2 integration tests
+        ("build/test_atf_v2_writer", "test/test_atf_v2_writer"),
+        (
+            "build/tests/integration/atf/test_atf_v2_writer",
+            "test/test_atf_v2_writer",
+        ),
+        ("out/bin/test_atf_v2_writer", "test/test_atf_v2_writer"),
         ("build/test_per_thread_drain", "test/test_per_thread_drain"),
         (
             "build/tests/unit/drain_thread/test_per_thread_drain",

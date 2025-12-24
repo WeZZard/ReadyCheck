@@ -1,6 +1,6 @@
 ---
-status: active
-date: 2025-12-23
+status: completed
+date: 2025-12-24
 supersedes: M1_E2_I3_ATF_V4_WRITER
 ---
 

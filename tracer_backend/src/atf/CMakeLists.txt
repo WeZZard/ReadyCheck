@@ -1,3 +1,4 @@
+# ATF v4 (protobuf-based, deprecated but still used)
 find_program(PROTOC_C_EXECUTABLE protoc-c)
 if(NOT PROTOC_C_EXECUTABLE)
     message(FATAL_ERROR "protoc-c compiler not found. Install protobuf-c (e.g. `brew install protobuf-c`).")
@@ -34,9 +35,16 @@ add_custom_command(
     VERBATIM
 )
 
+# ATF v2 (raw binary format, current)
 add_library(tracer_atf_writer STATIC
+    # ATF v4 (deprecated)
     atf_v4_writer.c
     ${ATF_GENERATED_SOURCES}
+    # ATF v2 (current)
+    thread_counters.c
+    atf_index_writer.c
+    atf_detail_writer.c
+    atf_thread_writer.c
 )
 
 target_include_directories(tracer_atf_writer

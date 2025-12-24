@@ -572,6 +572,20 @@ check_incremental_coverage() {
         log_warn "lcov not found, cannot filter test files from coverage"
     fi
 
+    # Filter LCOV_EXCL_LINE markers from coverage report
+    # This respects developer-placed exclusion markers for defensive code
+    local filter_script="${REPO_ROOT}/utils/filter_lcov_exclusions.py"
+    if [[ -f "$filter_script" ]]; then
+        log_info "Filtering LCOV exclusion markers..."
+        local temp_filtered="${filtered_lcov}.tmp"
+        if python3 "$filter_script" "$filtered_lcov" "$temp_filtered" 2>/dev/null; then
+            mv "$temp_filtered" "$filtered_lcov"
+        else
+            log_warn "Failed to filter LCOV exclusion markers, using unfiltered report"
+            rm -f "$temp_filtered"
+        fi
+    fi
+
     # Determine the comparison branch based on context
     local compare_branch="HEAD"  # Default: check uncommitted changes
 

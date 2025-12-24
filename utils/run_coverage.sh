@@ -36,6 +36,18 @@ echo
 echo "Generating HTML report..."
 "$WORKSPACE_ROOT/target/release/coverage_helper" report --format html
 
+# Filter LCOV exclusions
+echo
+echo "Filtering LCOV exclusions..."
+if [ -f "$WORKSPACE_ROOT/target/coverage_report/merged.lcov" ]; then
+    python3 "$WORKSPACE_ROOT/utils/filter_lcov_exclusions.py" \
+        "$WORKSPACE_ROOT/target/coverage_report/merged.lcov" \
+        "$WORKSPACE_ROOT/target/coverage_report/merged_filtered.lcov"
+    # Replace original with filtered version
+    mv "$WORKSPACE_ROOT/target/coverage_report/merged_filtered.lcov" \
+       "$WORKSPACE_ROOT/target/coverage_report/merged.lcov"
+fi
+
 # Run diff-cover
 echo
 echo "Checking coverage on changed lines..."
