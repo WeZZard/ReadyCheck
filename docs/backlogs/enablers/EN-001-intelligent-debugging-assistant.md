@@ -1,3 +1,13 @@
+---
+id: EN-001
+title: Intelligent Debugging Assistant
+type: exploration
+status: pending
+blocked_by: []
+priority: medium
+estimated_effort: large
+---
+
 # ADA Intelligent Debugging Assistant
 
 ## Vision
@@ -9,7 +19,7 @@ Transform ADA from a flight recorder into an **intelligent debugging co-processo
 Leverage ADA's existing infrastructure:
 - **Frida** for dynamic instrumentation
 - **Dual-lane architecture** for zero-overhead debug info
-- **Ring buffers** for efficient event collection  
+- **Ring buffers** for efficient event collection
 - **Thread registry** for thread awareness
 
 To provide **live debugging insight without stopping execution**.
@@ -150,7 +160,7 @@ Continuous field monitoring with history tracking:
 
 ```c
 // Monitor specific fields for changes
-ada_monitor_field(registry, 
+ada_monitor_field(registry,
                   offsetof(ThreadRegistry, thread_count),
                   ADA_MONITOR_ON_CHANGE | ADA_MONITOR_TRACK_HISTORY);
 
@@ -216,7 +226,7 @@ ADA debugging assistant should **enhance, not replace** existing debuggers:
 (lldb) ada enable thread_monitoring
 [ADA] Monitoring thread state changes...
 
-# Use with GDB  
+# Use with GDB
 (gdb) ada show memory_layout
 [ADA] Displaying live memory access patterns...
 
@@ -279,7 +289,7 @@ $ ada profile --function lane_submit_ring
 $ ada validate --lock-free thread_registry
 [ADA] Validating lock-free correctness...
 [ADA] ✓ Memory ordering correct
-[ADA] ✓ No data races detected  
+[ADA] ✓ No data races detected
 [ADA] ✗ ABA problem possible in lane_take_ring
 [ADA]   Recommendation: Add version counter
 ```
@@ -294,7 +304,7 @@ $ ada validate --lock-free thread_registry
 5. Guess at optimization effects
 6. Eventually find issue (hours/days)
 
-### After ADA Debugging Assistant  
+### After ADA Debugging Assistant
 1. Bug occurs in production
 2. Enable ADA monitoring on live system
 3. See exact state evolution

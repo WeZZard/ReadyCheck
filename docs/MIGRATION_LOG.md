@@ -292,6 +292,63 @@ Minor issues identified are documented and non-blocking for continued developmen
 
 ---
 
+## Phase 9: Backlogs Directory Restructure (2025-12-25)
+
+### Issue
+
+The `docs/backlogs/` directory had a flat structure with legacy files that didn't follow the ada_foundry naming convention.
+
+**Before:**
+```
+docs/backlogs/
+├── ADA_INTELLIGENT_DEBUGGING_ASSISTANT.md   # No frontmatter, no ID
+└── NATIVE_SCRIPTLESS_AGENT_INJECTION_MACOS.md  # No frontmatter, no ID
+```
+
+**After:**
+```
+docs/backlogs/
+├── enablers/
+│   ├── EN-001-intelligent-debugging-assistant.md
+│   └── EN-002-native-scriptless-agent-injection.md
+├── issues/
+│   └── (empty)
+└── feedbacks/
+    └── (empty)
+```
+
+### Actions Performed
+
+1. **Created subdirectory structure**:
+   - `backlogs/enablers/`
+   - `backlogs/issues/`
+   - `backlogs/feedbacks/`
+
+2. **Migrated 2 legacy files to enabler format**:
+
+   | Legacy File | New File | Type |
+   |-------------|----------|------|
+   | `ADA_INTELLIGENT_DEBUGGING_ASSISTANT.md` | `EN-001-intelligent-debugging-assistant.md` | exploration |
+   | `NATIVE_SCRIPTLESS_AGENT_INJECTION_MACOS.md` | `EN-002-native-scriptless-agent-injection.md` | infrastructure |
+
+3. **Added proper frontmatter** to each enabler:
+   - `id`, `title`, `type`, `status`, `blocked_by`, `priority`, `estimated_effort`
+
+4. **Removed legacy files** from root backlogs directory
+
+### Enablers Created
+
+| ID | Title | Type | Priority | Effort |
+|----|-------|------|----------|--------|
+| EN-001 | Intelligent Debugging Assistant | exploration | medium | large |
+| EN-002 | Native Scriptless Agent Injection on macOS | infrastructure | high | medium |
+
+### Status
+✓ COMPLETED
+
+---
+
 *Migration completed: 2025-12-25*
 *Validation report: PASS (8/9 checks passed, 1 partial)*
 *Phase 8 fix completed: 2025-12-25*
+*Phase 9 fix completed: 2025-12-25*
