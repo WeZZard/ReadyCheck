@@ -352,3 +352,93 @@ docs/backlogs/
 *Validation report: PASS (8/9 checks passed, 1 partial)*
 *Phase 8 fix completed: 2025-12-25*
 *Phase 9 fix completed: 2025-12-25*
+
+---
+
+## Phase 10: ada_foundry Structure Synchronization (2025-12-30)
+
+### Issue
+
+The documentation structure needed to be synchronized with the latest ada_foundry convention for consistency across projects.
+
+### Actions Performed
+
+1. **Renamed `specs/` to `definitions/`**:
+   - `docs/specs/behaviors/` → `docs/definitions/behaviors/`
+   - `docs/specs/constraints/` → `docs/definitions/constraints/`
+   - `docs/specs/environments/` → `docs/definitions/environments/`
+   - `docs/specs/boundaries/` → `docs/definitions/boundaries/`
+
+2. **Moved `user_stories/` under `definitions/`**:
+   - `docs/user_stories/` → `docs/definitions/user_stories/`
+
+3. **Moved `personas/` under `definitions/`**:
+   - `docs/personas/` → `docs/definitions/personas/`
+
+4. **Moved `enablers/` under `definitions/`**:
+   - `docs/backlogs/enablers/` → `docs/definitions/enablers/`
+
+5. **Created `design/` directory structure**:
+   - `docs/architecture/` → `docs/design/architecture/`
+
+6. **Removed empty `backlogs/` directory** (feedbacks/ and issues/ were empty)
+
+7. **Created milestone.md and epic.md files**:
+   - `docs/progress_trackings/M1_NATIVE_AGENT_MVP/milestone.md`
+   - `docs/progress_trackings/M1_NATIVE_AGENT_MVP/M1_E1_NATIVE_AGENT_INJECTION/epic.md`
+   - `docs/progress_trackings/M1_NATIVE_AGENT_MVP/M1_E2_INDEX_PIPELINE/epic.md`
+   - `docs/progress_trackings/M1_NATIVE_AGENT_MVP/M1_E3_HARDENING/epic.md`
+   - `docs/progress_trackings/M1_NATIVE_AGENT_MVP/M1_E4_QUERY_ENGINE/epic.md`
+   - `docs/progress_trackings/M1_NATIVE_AGENT_MVP/M1_E5_DOCUMENTATION/epic.md`
+   - `docs/progress_trackings/M1_NATIVE_AGENT_MVP/M1_E6_PUSH_TO_WORK/epic.md`
+   - `docs/progress_trackings/M1_NATIVE_AGENT_MVP/M1_E7_ATF_V2/epic.md`
+
+8. **Updated cross-references** in all markdown files:
+   - `docs/specs/` → `docs/definitions/`
+   - `docs/user_stories/` → `docs/definitions/user_stories/`
+   - Updated CLAUDE.md project structure section
+   - Updated README.md documentation structure
+
+### New Directory Structure
+
+```
+docs/
+├── definitions/              # MEI-supporting artifacts
+│   ├── behaviors/           # BDD behaviors (BH-XXX)
+│   ├── constraints/         # System constraints (CN-XXX)
+│   ├── environments/        # Environment specs (EV-XXX)
+│   ├── boundaries/          # Boundary specs
+│   ├── user_stories/        # User stories (US-XXX)
+│   ├── personas/            # User personas (PS-XXX)
+│   └── enablers/            # Technical enablers (EN-XXX)
+├── design/                   # Design documentation
+│   └── architecture/        # System architecture
+├── business/                 # Business analysis (kept at root)
+├── proposals/                # Design proposals (PP-XXXX)
+├── sops/                     # Standard operating procedures (kept at root)
+├── progress_trackings/       # M/E/I tracking with milestone.md and epic.md
+├── GETTING_STARTED.md
+└── MIGRATION_LOG.md
+```
+
+### Files Created/Modified
+
+| Change Type | Count |
+|-------------|-------|
+| Directory renames | 1 (specs → definitions) |
+| Directory moves | 4 (user_stories, personas, enablers, architecture) |
+| New directories | 2 (design/, definitions/enablers/) |
+| New files (milestone.md, epic.md) | 8 |
+| Files moved | ~63 |
+| Reference updates | ~100+ |
+
+### Backup Location
+
+Pre-migration backup created at: `docs.backup.20251230/`
+
+### Status
+✓ COMPLETED
+
+---
+
+*Phase 10 completed: 2025-12-30*

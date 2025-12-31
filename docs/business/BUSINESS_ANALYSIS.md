@@ -125,7 +125,7 @@ This document consolidates business reasoning backed by the repository’s user 
 
 ## 15. Alignment to repo governance
 
-- Aligned with `AGENT.md` intent; fulfills `docs/user_stories/USER_STORIES.md` (AI Agent first; human supervisor second).
+- Aligned with `AGENT.md` intent; fulfills `docs/definitions/user_stories/USER_STORIES.md` (AI Agent first; human supervisor second).
 - Implements `BH-004-function-tracing`, `BH-005-ring-buffer`, `BH-006-backpressure`, `BH-010-query-api`, and `EV-001-permissions-environment` with `CN-001-platform-limitations` guardrails.
 - Enforced by `docs/engineering_efficiency/TOP_DOWN_VALIDATION_FRAMEWORK.md` and `docs/engineering_efficiency/INTEGRATION_PROCESS_SPECIFICATION.md` to prevent drift.
 

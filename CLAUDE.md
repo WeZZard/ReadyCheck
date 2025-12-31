@@ -45,21 +45,28 @@ Core components and critical directories:
 project-root/
 ├── Cargo.toml                     # CRITICAL: Root workspace manifest - orchestrates ALL builds
 ├── docs/
+│   ├── definitions/               # MEI-supporting artifacts (specs, stories, personas)
+│   │   ├── behaviors/             # BDD behaviors (BH-XXX)
+│   │   ├── constraints/           # System constraints (CN-XXX)
+│   │   ├── environments/          # Environment specs (EV-XXX)
+│   │   ├── user_stories/          # User story definitions (US-XXX)
+│   │   ├── personas/              # User personas (PS-XXX)
+│   │   └── enablers/              # Technical enablers (EN-XXX)
+│   ├── design/                    # Design documentation (synthesis)
+│   │   └── architecture/          # System architecture and decisions
 │   ├── business/                  # Business analysis
-│   ├── user_stories/              # User stories  
-│   ├── specs/                     # Technical specifications
-│   ├── technical_insights/        # Technical insights
-│   │   ├── ada/                   # Technical insights for ADA
-│   │   └── engineering_process/   # Technical insights for engineering_process
+│   ├── proposals/                 # Design proposals (PP-XXXX)
+│   ├── sops/                      # Standard operating procedures
 │   └── progress_trackings/        # CRITICAL FOR PLANNERS: Development workflow artifacts
 │       └── M{X}_{MILESTONE_NAME}/           # Milestone folders (X = milestone number)
-│           ├── M{X}_{MILESTONE_NAME}.md     # Milestone target document
+│           ├── milestone.md                 # Milestone target document
 │           └── M{X}_E{Y}_{EPIC_NAME}/       # Epic folders (Y = epic number)
-│               ├── M{X}_E{Y}_{EPIC_NAME}.md # Epic target document
+│               ├── epic.md                  # Epic target document
 │               └── M{X}_E{Y}_I{Z}_{ITERATION_NAME}/ # Iteration folders (Z = iteration number)
-│                   ├── M{X}_E{Y}_I{Z}_TECH_DESIGN.md
-│                   ├── M{X}_E{Y}_I{Z}_TEST_PLAN.md
-│                   └── M{X}_E{Y}_I{Z}_BACKLOGS.md
+│                   ├── 00-status.md         # Status tracking
+│                   ├── tech-design.md       # Technical design
+│                   ├── test-plan.md         # Test plan
+│                   └── tasks.md             # Implementation tasks
 │
 ├── tracer/                       # Rust tracer (control plane)
 │   └── Cargo.toml                # Component manifest
@@ -260,15 +267,16 @@ Where: X = milestone number, Y = epic number, Z = iteration number
 **Essential documents** - READ these when referenced:
 
 - **Setup/Build**: [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md)
-- **Architecture**: [`docs/specs/ARCHITECTURE.md`](docs/specs/ARCHITECTURE.md)
-- **Engineering Process**: `docs/technical_insights/engineering_process/`
+- **Architecture**: [`docs/design/architecture/`](docs/design/architecture/)
+- **Definitions**: `docs/definitions/` (behaviors, constraints, user stories, personas)
 
 **Additional references**:
 
 - Business analysis: `docs/business/`
-- User stories: `docs/user_stories/`
-- ADA technical insights: `docs/technical_insights/ada/`
+- User stories: `docs/definitions/user_stories/`
+- Proposals: `docs/proposals/`
 - Progress tracking: `docs/progress_trackings/`
+- SOPs: `docs/sops/`
 
 Do NOT duplicate content from these documents - reference them.
 
@@ -291,7 +299,7 @@ Example: `ring_buffer__overflow__then_wraps_around`
 5. **Platform Security**: Platform-specific requirements for tracing
    - macOS: Run `./utils/sign_binary.sh <path>` for SSH/CI tracing
    - Linux: May need ptrace capabilities
-   - See `docs/specs/PLATFORM_SECURITY_REQUIREMENTS.md`
+   - See `docs/definitions/constraints/` for platform constraints
 
 ## Focus Areas
 

@@ -244,7 +244,7 @@ To productionize this POC:
 
 This POC follows the architecture defined in:
 
-- `docs/tech_designs/NATIVE_TRACER_BACKEND_ARCHITECTURE.md`
-- `docs/specs/TRACER_SPEC.md`
+- `docs/design/architecture/` - System architecture
+- `docs/definitions/behaviors/` - Behavioral specifications
 
 When making changes, ensure alignment with these specifications.

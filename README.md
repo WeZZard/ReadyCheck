@@ -28,9 +28,8 @@ For human developers, comprehensive guides are available:
 
 #### Standards & Requirements
 
-- [Engineering Standards](docs/technical_insights/engineering_process/ENGINEERING_STANDARDS.md)
-- [Quality Gate Implementation](docs/technical_insights/engineering_process/QUALITY_GATE_IMPLEMENTATION.md)
-- [Coverage System Analysis](docs/technical_insights/engineering_process/COVERAGE_SYSTEM_ANALYSIS_AND_REQUIREMENTS.md)
+- [Engineering Standards](docs/sops/ENGINEERING_STANDARDS.md)
+- [Getting Started](docs/GETTING_STARTED.md)
 
 ### For AI Agents
 
@@ -57,7 +56,7 @@ cargo test --all        # Run all tests
 
 ### macOS
 - Apple Developer Certificate ($99/year) required for tracing
-- See [Platform Security Requirements](docs/specs/PLATFORM_SECURITY_REQUIREMENTS.md)
+- See [Platform Constraints](docs/definitions/constraints/) for details
 
 ### Linux
 - May require ptrace capabilities
@@ -67,11 +66,19 @@ cargo test --all        # Run all tests
 
 ```
 docs/
-├── business/                # Business analysis
-├── user_stories/           # User requirements
-├── specs/                  # Technical specifications
-├── technical_insights/     # Deep dives
-└── progress_trackings/     # Iteration artifacts
+├── definitions/             # MEI-supporting artifacts
+│   ├── behaviors/          # BDD behaviors (BH-XXX)
+│   ├── constraints/        # System constraints (CN-XXX)
+│   ├── environments/       # Environment specs (EV-XXX)
+│   ├── user_stories/       # User stories (US-XXX)
+│   ├── personas/           # User personas (PS-XXX)
+│   └── enablers/           # Technical enablers (EN-XXX)
+├── design/                  # Design documentation
+│   └── architecture/       # System architecture
+├── business/               # Business analysis
+├── proposals/              # Design proposals (PP-XXXX)
+├── sops/                   # Standard operating procedures
+└── progress_trackings/     # M/E/I tracking artifacts
 ```
 
 ## Contributing
