@@ -1,3 +1,15 @@
+---
+id: PP-0003
+title: Quality Gate Implementation
+status: implemented
+author: wezzard
+created: 2026-01-02
+reviewed: null
+decided: null
+implemented: null
+planned_in: null
+---
+
 # Quality Gate Implementation Guide
 
 This document describes the implemented mixed-language quality gate enforcement system for the ADA project, covering Rust, C/C++, and Python components.
@@ -193,7 +205,7 @@ The unified summary includes:
    # Verify hook is installed
    ls -la .git/hooks/pre-commit
    # Should be symlink to utils/hooks/pre-commit
-   
+
    # Reinstall if needed
    ./utils/install_hooks.sh
    ```

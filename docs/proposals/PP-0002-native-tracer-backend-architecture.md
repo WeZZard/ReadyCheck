@@ -1,9 +1,16 @@
-# Native Tracer Backend Architecture Design
+---
+id: PP-0002
+title: Native Tracer Backend Architecture
+status: implemented
+author: wezzard
+created: 2026-01-02
+reviewed: null
+decided: null
+implemented: null
+planned_in: null
+---
 
-**Component**: Tracer Native  
-**Author**: Claude Code  
-**Last Updated**: August 19, 2025  
-**Status**: Active  
+# Native Tracer Backend Architecture Design
 
 ## Executive Summary
 
@@ -34,37 +41,37 @@ graph TB
         FC --> DC[DrainContext<br/>Event aggregation]
         FC --> SC[SymbolCache<br/>Address resolution]
         FC --> CB[ControlBlock<br/>Shared state]
-        
+
         FD[Frida Device]
         FD --> FS[Frida Session]
         FS --> FSC[Frida Script<br/>JS Agent]
     end
-    
+
     subgraph "Target Process"
         TA[Target Application]
         IA[Injected Agent<br/>agent.dylib]
         IA --> TLB[TwoLaneBuffer]
-        
+
         subgraph "Two-Lane Architecture"
             TLB --> IL[Index Lane<br/>Compact events<br/>32 bytes]
             TLB --> DL[Detail Lane<br/>Rich events<br/>512 bytes]
         end
-        
+
         IA --> HF[Hooked Functions]
         HF --> |intercept| TA
     end
-    
+
     subgraph "Shared Memory"
         SHM1[ada_shm_index<br/>Index events]
         SHM2[ada_shm_detail<br/>Detail events]
         SHM3[ada_thread_registry<br/>Per-thread rings]
         SHM4[ada_shm_control<br/>Control state]
     end
-    
+
     subgraph "Storage"
         ATF[ATF File<br/>Protobuf format]
     end
-    
+
     %% Connections
     FC -.->|spawn/attach| TA
     FSC -->|inject| IA
@@ -72,12 +79,12 @@ graph TB
     DL -->|write| SHM2
     TR -->|write| SHM3
     CB -->|sync| SHM4
-    
+
     DC -->|drain| SHM1
     DC -->|drain| SHM2
     DC -->|drain| SHM3
     DC -->|write| ATF
-    
+
     style FC fill:#e1f5fe
     style IA fill:#fff3e0
     style TLB fill:#f3e5f5
@@ -172,17 +179,17 @@ typedef struct __attribute__((packed)) {
     uint32_t event_kind;
     uint32_t call_depth;
     uint32_t _pad1;
-    
+
     // ARM64 ABI registers (x0-x7 for arguments)
     uint64_t x_regs[8];
     uint64_t lr;            // Link register
     uint64_t fp;            // Frame pointer
     uint64_t sp;            // Stack pointer
-    
+
     // Stack snapshot (128 bytes default)
     uint8_t stack_snapshot[128];
     uint32_t stack_size;
-    
+
     // Padding to 512 bytes
     uint8_t _padding[512 - 248];
 } DetailEvent;
@@ -201,14 +208,14 @@ sequenceDiagram
     participant Agent as Injected Agent
     participant SHM as Shared Memory
     participant Drain as Drain Thread
-    
+
     User->>Controller: frida_context_create()
     Controller->>Controller: Initialize ThreadRegistry
     Controller->>SHM: Create /ada_thread_registry
     Controller->>Controller: Create DrainContext
     Controller->>Drain: Start drain thread
     Controller->>SHM: Create /ada_shm_control
-    
+
     User->>Controller: frida_spawn_suspended(path, args)
     Controller->>Controller: Platform preflight check
     alt Using posix_spawn (mock tracees)
@@ -232,7 +239,7 @@ sequenceDiagram
     participant Agent
     participant Target
     participant SHM
-    
+
     User->>Controller: frida_install_full_coverage()
     Controller->>Frida: frida_device_attach_sync(pid)
     Frida->>Target: Attach to process
@@ -242,10 +249,10 @@ sequenceDiagram
     Agent->>SHM: Create /ada_shm_index
     Agent->>SHM: Create /ada_shm_detail
     Agent-->>Controller: Hooks installed
-    
+
     User->>Controller: frida_resume_process(pid)
     Controller->>Target: Resume execution
-    
+
     loop During execution
         Target->>Agent: Function call intercepted
         Agent->>Agent: Capture context
@@ -264,7 +271,7 @@ sequenceDiagram
     participant Drain as Drain Thread
     participant SHM as Shared Memory
     participant ATF as ATF File
-    
+
     loop Every 100ms
         Drain->>SHM: Check all thread rings
         alt Events available
@@ -286,26 +293,26 @@ sequenceDiagram
 ```mermaid
 stateDiagram-v2
     [*] --> Uninitialized
-    
+
     Uninitialized --> Initialized: frida_context_create()
-    
+
     Initialized --> Spawning: frida_spawn_suspended()
     Spawning --> Suspended: Process created
     Spawning --> Failed: Spawn error
-    
+
     Suspended --> Attaching: frida_install_hooks()
     Attaching --> Attached: Hooks installed
     Attaching --> Failed: Attach error
-    
+
     Attached --> Running: frida_resume_process()
     Running --> Attached: frida_pause_process()
-    
+
     Running --> Detaching: frida_detach()
     Attached --> Detaching: frida_detach()
-    
+
     Detaching --> Initialized: Cleanup complete
     Failed --> Initialized: Reset
-    
+
     Initialized --> [*]: frida_context_destroy()
 ```
 
@@ -314,11 +321,11 @@ stateDiagram-v2
 ```mermaid
 stateDiagram-v2
     [*] --> Capturing
-    
+
     Capturing --> MarkedSeen: Marked event detected
     MarkedSeen --> Persisting: Buffer full
     Persisting --> Capturing: Dump complete
-    
+
     note right of Capturing: Always capturing to ring
     note right of MarkedSeen: Flag set, waiting for full
     note right of Persisting: Dumping buffer with pre/post context
@@ -392,7 +399,7 @@ ThreadRegistry Layout (Shared Memory)
 **Implementation** (M1 semantics):
 
 - Index lane (compact): Always-on capture to a rolling ring; persistence via dump-on-full with bounded ring-pool swap.
-- Detail lane (rich): Always-on capture to a rolling ring; persistence via dump-on-full-and-marked with bounded ring-pool swap. “Marked” is defined by the marking policy.
+- Detail lane (rich): Always-on capture to a rolling ring; persistence via dump-on-full-and-marked with bounded ring-pool swap. "Marked" is defined by the marking policy.
 - No enable/disable toggling for capture on the detail lane; windows are realized by dump triggers and ring snapshots.
 
 **Benefits**:
@@ -418,7 +425,7 @@ if (next != ring->read_pos) {
 // Consumer (drain thread)
 if (ring->read_pos != ring->write_pos) {
     event = ring->buffer[ring->read_pos];
-    __atomic_store_n(&ring->read_pos, 
+    __atomic_store_n(&ring->read_pos,
                      (ring->read_pos + 1) % ring->capacity,
                      __ATOMIC_RELEASE);
 }
@@ -553,14 +560,14 @@ graph TB
         TH[Test Harness<br/>Google Test]
         TM[Test Mocks<br/>System call mocks]
     end
-    
+
     subgraph "Test Categories"
         UT[Unit Tests<br/>Component isolation]
         IT[Integration Tests<br/>Component interaction]
         PT[Performance Tests<br/>Benchmarks]
         ST[System Tests<br/>End-to-end]
     end
-    
+
     TF --> ST
     TM --> UT
     TH --> UT

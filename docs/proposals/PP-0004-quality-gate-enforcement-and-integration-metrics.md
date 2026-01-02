@@ -1,3 +1,14 @@
+---
+id: PP-0004
+title: Quality Gate Enforcement and Integration Metrics
+status: implemented
+author: wezzard
+created: 2026-01-02
+reviewed: null
+decided: null
+implemented: null
+planned_in: null
+---
 
 # Quality Gate Enforcement and Integration Metrics: Mixed Rust/C/C++/Python Repositories
 
@@ -108,7 +119,7 @@ BLOCKED:
 - Any code reducing critical metrics below 100%
 - Ignoring failing tests (must fix root cause)
 - Bypassing checks (e.g., --no-verify)
-- “Temporary” quality compromises in critical paths
+- "Temporary" quality compromises in critical paths
 - New/modified code with <80% coverage
 
 ## Quality Gate Commands
@@ -129,7 +140,7 @@ Before committing (choose one):
 ./utils/install_hooks.sh
 ```
 
-If you don’t use a unified script yet, run per-language commands:
+If you don't use a unified script yet, run per-language commands:
 
 - Rust: cargo build && cargo test; cargo tarpaulin -o Xml
 - C/C++: cmake .. && cmake --build . && ctest; gcovr or llvm-cov for coverage

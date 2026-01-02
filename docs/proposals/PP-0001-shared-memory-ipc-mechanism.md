@@ -1,3 +1,15 @@
+---
+id: PP-0001
+title: Shared Memory IPC Mechanism
+status: implemented
+author: wezzard
+created: 2026-01-02
+reviewed: null
+decided: null
+implemented: null
+planned_in: null
+---
+
 # Design Guide: A Robust Shared Memory IPC Mechanism
 
 This document outlines the design principles for a high-performance, cross-language Inter-Process Communication (IPC) mechanism suitable for a tracer/agent architecture.
@@ -52,7 +64,7 @@ Two classes of synchronization are required:
      - submit_q (agent→controller): ring indices to dump (index: on full; detail: on full AND marked).
      - free_q (controller→agent): spare ring indices to activate.
    - Control block carries atomic `active_ring_idx` per lane and metrics.
-   - Optional: a Named POSIX Semaphore or eventfd can be used to wake the controller’s drain thread from sleep; never in the hot path.
+   - Optional: a Named POSIX Semaphore or eventfd can be used to wake the controller's drain thread from sleep; never in the hot path.
 
 ---
 
