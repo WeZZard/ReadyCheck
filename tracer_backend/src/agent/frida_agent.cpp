@@ -596,16 +596,17 @@ void AgentContext::install_hooks() {
     // Enumerate main module first
     LOG_HOOK_INSTALL("[Agent] Getting main module...\n");
     GumModule* main_mod = gum_process_get_main_module();
+    const char* main_path = main_mod ? gum_module_get_path(main_mod) : nullptr;
     std::vector<ExportEntry> main_exports_entries;
     if (main_mod) {
         gum_module_enumerate_exports(main_mod, collect_exports_cb, &main_exports_entries);
 
         // Capture module metadata for symbol resolution (Phase 1 - symbol table persistence)
         const GumMemoryRange* range = gum_module_get_range(main_mod);
-        if (range) {
+        if (range && main_path) {
             uint8_t uuid[16] = {0};
             ada::agent::extract_module_uuid(static_cast<uintptr_t>(range->base_address), uuid);
-            hook_registry_.set_module_metadata("<main>", range->base_address, range->size, uuid);
+            hook_registry_.set_module_metadata(main_path, range->base_address, range->size, uuid);
             LOG_HOOK_INSTALL("[Agent] Captured main module metadata: base=0x%llx, size=%zu\n",
                     (unsigned long long)range->base_address, (size_t)range->size);
         }
@@ -615,7 +616,7 @@ void AgentContext::install_hooks() {
     for (auto& e : main_exports_entries) main_export_names.push_back(e.name);
 
     // Plan main hooks
-    auto main_plan = ada::agent::plan_module_hooks("<main>", main_export_names, xs, hook_registry_);
+    auto main_plan = ada::agent::plan_module_hooks(main_path ? main_path : "<main>", main_export_names, xs, hook_registry_);
     // Build precise address lookup for main module using symbol/export resolution
     std::unordered_map<std::string, GumAddress> main_addr;
     for (auto& e : main_exports_entries) {
@@ -682,12 +683,15 @@ void AgentContext::install_hooks() {
             
             const char* path = gum_module_get_path(mod);
             
-            if (mod != main_mod) {
-                // Yes. We only install hooks to the main module. Maybe we need to install hooks
-                // to the functions offer system semantics later.
-                LOG_HOOK_INSTALL("[Agent] Skipping install hooks to non-main module: %s\n", path);
+            if (mod == main_mod) {
+                // Main module already processed above, skip to avoid duplicate registration
                 continue;
             }
+
+            // Skip non-main modules for now. We only install hooks to the main module.
+            // TODO: Consider hooking DSO functions with system semantics later.
+            LOG_HOOK_INSTALL("[Agent] Skipping install hooks to non-main module: %s\n", path);
+            continue;
             
             LOG_HOOK_INSTALL("[Agent] Install hooks to module %s\n", path ? path : "(unknown)");
             if (!path || path[0] == '\0') continue;
