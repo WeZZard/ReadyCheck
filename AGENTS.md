@@ -147,6 +147,7 @@ cargo test -p query_engine
 - Use explicit error handling
 - Follow existing patterns in each component
 - Maintain modular architecture in tracer_backend
+- For MVPs, prefer official/first-party APIs and the simplest happy-path implementation before adding advanced or cross-platform complexity
 
 ## Testing Guidelines
 

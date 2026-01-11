@@ -1,0 +1,18 @@
+[package]
+name = "ada-gui"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+build = "build.rs"
+
+description = "Build orchestrator for the ADA SwiftUI capture app"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+
+[build-dependencies]
+

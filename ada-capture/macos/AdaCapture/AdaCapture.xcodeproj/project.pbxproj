@@ -1,0 +1,223 @@
+// !$*UTF8*$!
+{
+    archiveVersion = 1;
+    classes = {};
+    objectVersion = 56;
+    objects = {
+
+/* Begin PBXBuildFile section */
+        A0A0A0A0A0A0A0A0A0A0B001 /* AdaCaptureApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0A0A0A0A0A0A0A0A0A0F001 /* AdaCaptureApp.swift */; };
+        A0A0A0A0A0A0A0A0A0A0B002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0A0A0A0A0A0A0A0A0A0F002 /* ContentView.swift */; };
+        A0A0A0A0A0A0A0A0A0A0B003 /* CaptureViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0A0A0A0A0A0A0A0A0A0F003 /* CaptureViewModel.swift */; };
+        A0A0A0A0A0A0A0A0A0A0B004 /* DaemonClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0A0A0A0A0A0A0A0A0A0F004 /* DaemonClient.swift */; };
+		A0A0A0A0A0A0A0A0A0A0B005 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0A0A0A0A0A0A0A0A0A0F005 /* Models.swift */; };
+		A0A0A0A0A0A0A0A0A0A0B006 /* SessionMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0A0A0A0A0A0A0A0A0A0F006 /* SessionMode.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+        A0A0A0A0A0A0A0A0A0A0F001 /* AdaCaptureApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdaCaptureApp.swift; sourceTree = "<group>"; };
+        A0A0A0A0A0A0A0A0A0A0F002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+        A0A0A0A0A0A0A0A0A0A0F003 /* CaptureViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureViewModel.swift; sourceTree = "<group>"; };
+        A0A0A0A0A0A0A0A0A0A0F004 /* DaemonClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DaemonClient.swift; sourceTree = "<group>"; };
+		A0A0A0A0A0A0A0A0A0A0F005 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		A0A0A0A0A0A0A0A0A0A0F006 /* SessionMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionMode.swift; sourceTree = "<group>"; };
+        A0A0A0A0A0A0A0A0A0A0F010 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+        A0A0A0A0A0A0A0A0A0A0F100 /* AdaCapture.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; path = AdaCapture.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+        A0A0A0A0A0A0A0A0A0A0A010 /* AdaCapture */ = {
+            isa = PBXGroup;
+            children = (
+                A0A0A0A0A0A0A0A0A0A0F001 /* AdaCaptureApp.swift */,
+                A0A0A0A0A0A0A0A0A0A0F002 /* ContentView.swift */,
+                A0A0A0A0A0A0A0A0A0A0F003 /* CaptureViewModel.swift */,
+				A0A0A0A0A0A0A0A0A0A0F004 /* DaemonClient.swift */,
+				A0A0A0A0A0A0A0A0A0A0F005 /* Models.swift */,
+				A0A0A0A0A0A0A0A0A0A0F006 /* SessionMode.swift */,
+				A0A0A0A0A0A0A0A0A0A0F010 /* Info.plist */,
+            );
+            path = AdaCapture;
+            sourceTree = "<group>";
+        };
+        A0A0A0A0A0A0A0A0A0A0A011 /* Products */ = {
+            isa = PBXGroup;
+            children = (
+                A0A0A0A0A0A0A0A0A0A0F100 /* AdaCapture.app */,
+            );
+            name = Products;
+            sourceTree = "<group>";
+        };
+        A0A0A0A0A0A0A0A0A0A0A012 /* Root */ = {
+            isa = PBXGroup;
+            children = (
+                A0A0A0A0A0A0A0A0A0A0A010 /* AdaCapture */,
+                A0A0A0A0A0A0A0A0A0A0A011 /* Products */,
+            );
+            sourceTree = "<group>";
+        };
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+        A0A0A0A0A0A0A0A0A0A0A200 /* AdaCapture */ = {
+            isa = PBXNativeTarget;
+            buildConfigurationList = A0A0A0A0A0A0A0A0A0A0A301 /* Build configuration list for PBXNativeTarget "AdaCapture" */;
+            buildPhases = (
+                A0A0A0A0A0A0A0A0A0A0A100 /* Sources */,
+                A0A0A0A0A0A0A0A0A0A0A101 /* Frameworks */,
+                A0A0A0A0A0A0A0A0A0A0A102 /* Resources */,
+            );
+            buildRules = (
+            );
+            dependencies = (
+            );
+            name = AdaCapture;
+            productName = AdaCapture;
+            productReference = A0A0A0A0A0A0A0A0A0A0F100 /* AdaCapture.app */;
+            productType = "com.apple.product-type.application";
+        };
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+        A0A0A0A0A0A0A0A0A0A0A001 /* Project object */ = {
+            isa = PBXProject;
+            attributes = {
+                BuildIndependentTargetsInParallel = 1;
+                LastUpgradeCheck = 1500;
+                TargetAttributes = {
+                    A0A0A0A0A0A0A0A0A0A0A200 = {
+                        CreatedOnToolsVersion = 15.0;
+                    };
+                };
+            };
+            buildConfigurationList = A0A0A0A0A0A0A0A0A0A0A300 /* Build configuration list for PBXProject "AdaCapture" */;
+            compatibilityVersion = "Xcode 14.0";
+            developmentRegion = en;
+            hasScannedForEncodings = 0;
+            knownRegions = (
+                en,
+            );
+            mainGroup = A0A0A0A0A0A0A0A0A0A0A012 /* Root */;
+            productRefGroup = A0A0A0A0A0A0A0A0A0A0A011 /* Products */;
+            projectDirPath = "";
+            projectRoot = "";
+            targets = (
+                A0A0A0A0A0A0A0A0A0A0A200 /* AdaCapture */,
+            );
+        };
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+        A0A0A0A0A0A0A0A0A0A0A102 /* Resources */ = {
+            isa = PBXResourcesBuildPhase;
+            buildActionMask = 2147483647;
+            files = (
+            );
+            runOnlyForDeploymentPostprocessing = 0;
+        };
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+        A0A0A0A0A0A0A0A0A0A0A100 /* Sources */ = {
+            isa = PBXSourcesBuildPhase;
+            buildActionMask = 2147483647;
+            files = (
+                A0A0A0A0A0A0A0A0A0A0B001 /* AdaCaptureApp.swift in Sources */,
+                A0A0A0A0A0A0A0A0A0A0B002 /* ContentView.swift in Sources */,
+				A0A0A0A0A0A0A0A0A0A0B003 /* CaptureViewModel.swift in Sources */,
+				A0A0A0A0A0A0A0A0A0A0B004 /* DaemonClient.swift in Sources */,
+				A0A0A0A0A0A0A0A0A0A0B005 /* Models.swift in Sources */,
+				A0A0A0A0A0A0A0A0A0A0B006 /* SessionMode.swift in Sources */,
+			);
+            runOnlyForDeploymentPostprocessing = 0;
+        };
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXFrameworksBuildPhase section */
+        A0A0A0A0A0A0A0A0A0A0A101 /* Frameworks */ = {
+            isa = PBXFrameworksBuildPhase;
+            buildActionMask = 2147483647;
+            files = (
+            );
+            runOnlyForDeploymentPostprocessing = 0;
+        };
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+        A0A0A0A0A0A0A0A0A0A0A400 /* Debug */ = {
+            isa = XCBuildConfiguration;
+            buildSettings = {
+                CODE_SIGN_STYLE = Automatic;
+                DEVELOPMENT_TEAM = "";
+                INFOPLIST_FILE = AdaCapture/Info.plist;
+                MACOSX_DEPLOYMENT_TARGET = 13.0;
+                PRODUCT_BUNDLE_IDENTIFIER = com.agentic-infra.ada.capture;
+                PRODUCT_NAME = AdaCapture;
+                SWIFT_VERSION = 5.0;
+            };
+            name = Debug;
+        };
+        A0A0A0A0A0A0A0A0A0A0A401 /* Release */ = {
+            isa = XCBuildConfiguration;
+            buildSettings = {
+                CODE_SIGN_STYLE = Automatic;
+                DEVELOPMENT_TEAM = "";
+                INFOPLIST_FILE = AdaCapture/Info.plist;
+                MACOSX_DEPLOYMENT_TARGET = 13.0;
+                PRODUCT_BUNDLE_IDENTIFIER = com.agentic-infra.ada.capture;
+                PRODUCT_NAME = AdaCapture;
+                SWIFT_VERSION = 5.0;
+            };
+            name = Release;
+        };
+        A0A0A0A0A0A0A0A0A0A0A410 /* Debug */ = {
+            isa = XCBuildConfiguration;
+            buildSettings = {
+                CODE_SIGN_STYLE = Automatic;
+                DEVELOPMENT_TEAM = "";
+                INFOPLIST_FILE = AdaCapture/Info.plist;
+                MACOSX_DEPLOYMENT_TARGET = 13.0;
+                PRODUCT_BUNDLE_IDENTIFIER = com.agentic-infra.ada.capture;
+                PRODUCT_NAME = AdaCapture;
+                SWIFT_VERSION = 5.0;
+            };
+            name = Debug;
+        };
+        A0A0A0A0A0A0A0A0A0A0A411 /* Release */ = {
+            isa = XCBuildConfiguration;
+            buildSettings = {
+                CODE_SIGN_STYLE = Automatic;
+                DEVELOPMENT_TEAM = "";
+                INFOPLIST_FILE = AdaCapture/Info.plist;
+                MACOSX_DEPLOYMENT_TARGET = 13.0;
+                PRODUCT_BUNDLE_IDENTIFIER = com.agentic-infra.ada.capture;
+                PRODUCT_NAME = AdaCapture;
+                SWIFT_VERSION = 5.0;
+            };
+            name = Release;
+        };
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+        A0A0A0A0A0A0A0A0A0A0A300 /* Build configuration list for PBXProject "AdaCapture" */ = {
+            isa = XCConfigurationList;
+            buildConfigurations = (
+                A0A0A0A0A0A0A0A0A0A0A400 /* Debug */,
+                A0A0A0A0A0A0A0A0A0A0A401 /* Release */,
+            );
+            defaultConfigurationIsVisible = 0;
+            defaultConfigurationName = Debug;
+        };
+        A0A0A0A0A0A0A0A0A0A0A301 /* Build configuration list for PBXNativeTarget "AdaCapture" */ = {
+            isa = XCConfigurationList;
+            buildConfigurations = (
+                A0A0A0A0A0A0A0A0A0A0A410 /* Debug */,
+                A0A0A0A0A0A0A0A0A0A0A411 /* Release */,
+            );
+            defaultConfigurationIsVisible = 0;
+            defaultConfigurationName = Debug;
+        };
+/* End XCConfigurationList section */
+    };
+    rootObject = A0A0A0A0A0A0A0A0A0A0A001 /* Project object */;
+}

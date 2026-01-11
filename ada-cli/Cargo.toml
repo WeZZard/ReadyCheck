@@ -11,6 +11,10 @@ description = "ADA Command Line Interface - trace, analyze, and query applicatio
 name = "ada"
 path = "src/main.rs"
 
+[[bin]]
+name = "ada-capture-daemon"
+path = "src/capture_daemon.rs"
+
 [dependencies]
 # CLI parsing
 clap = { version = "4.4", features = ["derive", "env"] }
@@ -35,6 +39,10 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Utilities
 which = "6.0"
+ctrlc = "3.4"
+
+# Tracer control
+tracer_backend = { path = "../tracer_backend" }
 
 [build-dependencies]
 # For linking to symbol_resolver C library

@@ -11,6 +11,7 @@
 mod ffi;
 mod symbols;
 mod trace;
+mod capture;
 
 use clap::{Parser, Subcommand};
 use tracing_subscriber::{fmt, EnvFilter};
@@ -41,6 +42,10 @@ enum Commands {
     #[command(subcommand)]
     Symbols(symbols::SymbolsCommands),
 
+    /// Capture multimodal debugging sessions
+    #[command(subcommand)]
+    Capture(capture::CaptureCommands),
+
     /// Query trace data (coming soon)
     Query {
         /// Path to session directory
@@ -68,6 +73,7 @@ fn main() -> anyhow::Result<()> {
     match cli.command {
         Commands::Trace(cmd) => trace::run(cmd),
         Commands::Symbols(cmd) => symbols::run(cmd),
+        Commands::Capture(cmd) => capture::run(cmd),
         Commands::Query { session, query } => {
             println!("Query feature coming soon!");
             println!("Session: {}", session);

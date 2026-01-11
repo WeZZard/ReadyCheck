@@ -6,6 +6,21 @@ use std::env;
 use std::path::PathBuf;
 
 fn main() {
+    let skip_symbol_resolver = matches!(
+        env::var("ADA_CLI_SKIP_SYMBOL_RESOLVER")
+            .unwrap_or_default()
+            .to_lowercase()
+            .as_str(),
+        "1" | "true" | "yes"
+    );
+
+    if skip_symbol_resolver {
+        println!("cargo:warning=Skipping symbol_resolver linking (ADA_CLI_SKIP_SYMBOL_RESOLVER=1)");
+        println!("cargo:rerun-if-env-changed=ADA_CLI_SKIP_SYMBOL_RESOLVER");
+        println!("cargo:rerun-if-changed=build.rs");
+        return;
+    }
+
     let profile = env::var("PROFILE").expect("PROFILE not set");
 
     // Find the workspace root
@@ -52,6 +67,7 @@ fn main() {
     }
 
     // Rebuild if the library changes
+    println!("cargo:rerun-if-env-changed=ADA_CLI_SKIP_SYMBOL_RESOLVER");
     println!("cargo:rerun-if-changed=build.rs");
 }
 

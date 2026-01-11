@@ -32,9 +32,9 @@ int
 main (int argc,
       char * argv[])
 {
-  GumInterceptor * interceptor = NULL;
-  ExampleListenerData * data = NULL;
-  GumInvocationListener * listener = NULL;
+  GumInterceptor * interceptor;
+  ExampleListenerData * data;
+  GumInvocationListener * listener;
 
   gum_init_embedded ();
 

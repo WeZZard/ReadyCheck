@@ -285,6 +285,8 @@ compile_commands.json
 # Local build directories
 build/
 build_tracer/
+!/ada-capture/build/
+!/ada-capture/build/**
 
 # Coverage and reports
 target/coverage/

@@ -66,6 +66,8 @@ public:
     int arm_trigger(uint32_t pre_roll_ms, uint32_t post_roll_ms);
     int fire_trigger();
     int disarm_trigger();
+    int set_detail_enabled(uint32_t enabled);
+    int start_session();
     
     // State query
     ProcessState get_state() const { return state_; }

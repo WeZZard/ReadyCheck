@@ -6,6 +6,7 @@ members = [
     "utils/coverage_helper",
     "tracer",
     "ada-cli",
+    "ada-capture/build",
 ]
 
 # Use resolver 2 for better dependency resolution

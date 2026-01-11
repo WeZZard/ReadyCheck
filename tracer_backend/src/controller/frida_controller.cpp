@@ -1264,6 +1264,23 @@ int FridaController::disarm_trigger() {
     return 0;
 }
 
+int FridaController::set_detail_enabled(uint32_t enabled) {
+    if (!control_block_) {
+        return -1;
+    }
+
+    control_block_->detail_lane_enabled = enabled ? 1 : 0;
+
+    return 0;
+}
+
+int FridaController::start_session() {
+    if (!start_atf_session()) {
+        return -1;
+    }
+    return 0;
+}
+
 FlightRecorderState FridaController::get_flight_state() const {
     if (!control_block_) {
         return FLIGHT_RECORDER_IDLE;
@@ -1513,6 +1530,18 @@ int frida_controller_disarm_trigger(FridaController* controller) {
     if (!controller) return -1;
     return reinterpret_cast<ada::internal::FridaController*>(controller)
         ->disarm_trigger();
+}
+
+int frida_controller_set_detail_enabled(FridaController* controller, uint32_t enabled) {
+    if (!controller) return -1;
+    return reinterpret_cast<ada::internal::FridaController*>(controller)
+        ->set_detail_enabled(enabled);
+}
+
+int frida_controller_start_session(FridaController* controller) {
+    if (!controller) return -1;
+    return reinterpret_cast<ada::internal::FridaController*>(controller)
+        ->start_session();
 }
 
 ProcessState frida_controller_get_state(FridaController* controller) {

@@ -55,6 +55,16 @@ pub mod ffi {
             Failed = 8,
         }
 
+        #[repr(C)]
+        #[derive(Debug, Clone, Copy, PartialEq)]
+        pub enum FlightRecorderState {
+            Idle = 0,
+            Armed = 1,
+            PreRoll = 2,
+            Recording = 3,
+            PostRoll = 4,
+        }
+
         extern "C" {
             pub fn frida_controller_create(output_dir: *const c_char) -> *mut FridaController;
             pub fn frida_controller_destroy(controller: *mut FridaController);
@@ -68,8 +78,23 @@ pub mod ffi {
             pub fn frida_controller_detach(controller: *mut FridaController) -> c_int;
             pub fn frida_controller_resume(controller: *mut FridaController) -> c_int;
             pub fn frida_controller_install_hooks(controller: *mut FridaController) -> c_int;
+            pub fn frida_controller_arm_trigger(
+                controller: *mut FridaController,
+                pre_roll_ms: c_uint,
+                post_roll_ms: c_uint,
+            ) -> c_int;
+            pub fn frida_controller_fire_trigger(controller: *mut FridaController) -> c_int;
+            pub fn frida_controller_disarm_trigger(controller: *mut FridaController) -> c_int;
+            pub fn frida_controller_set_detail_enabled(
+                controller: *mut FridaController,
+                enabled: c_uint,
+            ) -> c_int;
+            pub fn frida_controller_start_session(controller: *mut FridaController) -> c_int;
             pub fn frida_controller_get_stats(controller: *mut FridaController) -> TracerStats;
             pub fn frida_controller_get_state(controller: *mut FridaController) -> ProcessState;
+            pub fn frida_controller_get_flight_state(
+                controller: *mut FridaController,
+            ) -> FlightRecorderState;
         }
     }
 
@@ -152,6 +177,61 @@ impl TracerController {
         Ok(())
     }
 
+    /// Arm flight recorder trigger
+    pub fn arm_trigger(&mut self, pre_roll_ms: u32, post_roll_ms: u32) -> anyhow::Result<()> {
+        let result = unsafe { ffi::frida_controller_arm_trigger(self.ptr, pre_roll_ms, post_roll_ms) };
+
+        if result != 0 {
+            anyhow::bail!("Failed to arm flight recorder trigger");
+        }
+
+        Ok(())
+    }
+
+    /// Fire flight recorder trigger
+    pub fn fire_trigger(&mut self) -> anyhow::Result<()> {
+        let result = unsafe { ffi::frida_controller_fire_trigger(self.ptr) };
+
+        if result != 0 {
+            anyhow::bail!("Failed to fire flight recorder trigger");
+        }
+
+        Ok(())
+    }
+
+    /// Disarm flight recorder trigger
+    pub fn disarm_trigger(&mut self) -> anyhow::Result<()> {
+        let result = unsafe { ffi::frida_controller_disarm_trigger(self.ptr) };
+
+        if result != 0 {
+            anyhow::bail!("Failed to disarm flight recorder trigger");
+        }
+
+        Ok(())
+    }
+
+    /// Enable or disable the detail lane
+    pub fn set_detail_enabled(&mut self, enabled: bool) -> anyhow::Result<()> {
+        let result = unsafe { ffi::frida_controller_set_detail_enabled(self.ptr, enabled as u32) };
+
+        if result != 0 {
+            anyhow::bail!("Failed to update detail lane state");
+        }
+
+        Ok(())
+    }
+
+    /// Start ATF session output without resuming the process
+    pub fn start_session(&mut self) -> anyhow::Result<()> {
+        let result = unsafe { ffi::frida_controller_start_session(self.ptr) };
+
+        if result != 0 {
+            anyhow::bail!("Failed to start ATF session");
+        }
+
+        Ok(())
+    }
+
     /// Resume a suspended process
     pub fn resume(&mut self) -> anyhow::Result<()> {
         let result = unsafe { ffi::frida_controller_resume(self.ptr) };
@@ -182,6 +262,11 @@ impl TracerController {
     /// Get current process state
     pub fn get_state(&self) -> ProcessState {
         unsafe { ffi::frida_controller_get_state(self.ptr) }
+    }
+
+    /// Get current flight recorder state
+    pub fn get_flight_state(&self) -> FlightRecorderState {
+        unsafe { ffi::frida_controller_get_flight_state(self.ptr) }
     }
 }
 
