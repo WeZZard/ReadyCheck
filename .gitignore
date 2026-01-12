@@ -63,6 +63,7 @@ Cargo.lock
 *.profraw
 *.profdata
 build-coverage
+tracer_backend/test_output/
 
 # ===========================
 # Python
