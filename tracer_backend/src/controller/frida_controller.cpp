@@ -1328,6 +1328,11 @@ int FridaController::start_session() {
     return 0;
 }
 
+int FridaController::stop_session() {
+    stop_atf_session();
+    return 0;
+}
+
 FlightRecorderState FridaController::get_flight_state() const {
     if (!control_block_) {
         return FLIGHT_RECORDER_IDLE;
@@ -1589,6 +1594,12 @@ int frida_controller_start_session(FridaController* controller) {
     if (!controller) return -1;
     return reinterpret_cast<ada::internal::FridaController*>(controller)
         ->start_session();
+}
+
+int frida_controller_stop_session(FridaController* controller) {
+    if (!controller) return -1;
+    return reinterpret_cast<ada::internal::FridaController*>(controller)
+        ->stop_session();
 }
 
 ProcessState frida_controller_get_state(FridaController* controller) {

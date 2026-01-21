@@ -69,6 +69,7 @@ public:
     int disarm_trigger();
     int set_detail_enabled(uint32_t enabled);
     int start_session();
+    int stop_session();
     
     // State query
     ProcessState get_state() const { return state_; }

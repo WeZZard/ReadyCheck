@@ -7,6 +7,7 @@
 #include <memory>
 #include <mutex>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 #include <string>
 #include <functional>
@@ -505,6 +506,46 @@ static gboolean collect_exports_cb(const GumExportDetails* details, gpointer use
     return TRUE;
 }
 
+struct SymbolEntry { std::string name; };
+
+static gboolean collect_symbols_cb(const GumSymbolDetails* details, gpointer user_data) {
+    auto* vec = reinterpret_cast<std::vector<SymbolEntry>*>(user_data);
+    if (details == nullptr || details->name == nullptr || details->name[0] == '\0') {
+        return TRUE;
+    }
+    if (details->type != GUM_SYMBOL_FUNCTION) {
+        if (details->section == nullptr ||
+            (details->section->protection & GUM_PAGE_EXECUTE) == 0) {
+            return TRUE;
+        }
+    }
+    if (details->address == 0) {
+        return TRUE;
+    }
+    vec->push_back(SymbolEntry{details->name});
+    return TRUE;
+}
+
+static size_t main_symbol_limit() {
+    const char* env = getenv("ADA_MAIN_SYMBOL_LIMIT");
+    if (env == nullptr || env[0] == '\0') {
+        return 0;
+    }
+    char* end = nullptr;
+    long value = strtol(env, &end, 10);
+    if (end == env || value < 0) {
+        return 0;
+    }
+    return static_cast<size_t>(value);
+}
+
+static void cap_symbol_names(std::vector<std::string>& names, size_t limit) {
+    if (limit == 0) return;
+    if (names.size() > limit) {
+        names.resize(limit);
+    }
+}
+
 // Resolve an export's actual runtime address with platform quirks handled
 static GumAddress resolve_export_address(GumModule* mod, const std::string& sym) {
     if (mod == nullptr || sym.empty()) return 0;
@@ -597,9 +638,9 @@ void AgentContext::install_hooks() {
     LOG_HOOK_INSTALL("[Agent] Getting main module...\n");
     GumModule* main_mod = gum_process_get_main_module();
     const char* main_path = main_mod ? gum_module_get_path(main_mod) : nullptr;
-    std::vector<ExportEntry> main_exports_entries;
+    std::vector<SymbolEntry> main_symbol_entries;
     if (main_mod) {
-        gum_module_enumerate_exports(main_mod, collect_exports_cb, &main_exports_entries);
+        gum_module_enumerate_symbols(main_mod, collect_symbols_cb, &main_symbol_entries);
 
         // Capture module metadata for symbol resolution (Phase 1 - symbol table persistence)
         const GumMemoryRange* range = gum_module_get_range(main_mod);
@@ -611,24 +652,35 @@ void AgentContext::install_hooks() {
                     (unsigned long long)range->base_address, (size_t)range->size);
         }
     }
-    std::vector<std::string> main_export_names;
-    main_export_names.reserve(main_exports_entries.size());
-    for (auto& e : main_exports_entries) main_export_names.push_back(e.name);
+    std::vector<std::string> main_symbol_names;
+    main_symbol_names.reserve(main_symbol_entries.size());
+    std::unordered_set<std::string> seen_symbols;
+    for (auto& e : main_symbol_entries) {
+        if (seen_symbols.insert(e.name).second) {
+            main_symbol_names.push_back(e.name);
+        }
+    }
+    size_t symbol_limit = main_symbol_limit();
+    cap_symbol_names(main_symbol_names, symbol_limit);
 
     // Plan main hooks
-    auto main_plan = ada::agent::plan_module_hooks(main_path ? main_path : "<main>", main_export_names, xs, hook_registry_);
+    auto main_plan = ada::agent::plan_module_hooks(main_path ? main_path : "<main>", main_symbol_names, xs, hook_registry_);
+
     // Build precise address lookup for main module using symbol/export resolution
     std::unordered_map<std::string, GumAddress> main_addr;
-    for (auto& e : main_exports_entries) {
-        GumAddress a = resolve_export_address(main_mod, e.name);
+    main_addr.reserve(main_plan.size());
+    for (const auto& entry : main_plan) {
+        GumAddress a = resolve_export_address(main_mod, entry.symbol);
         if (ada::internal::g_agent_verbose) {
-            LOG_HOOK_INSTALL("[Agent] Resolved main export %s -> 0x%llx\n", e.name.c_str(), (unsigned long long)a);
+            LOG_HOOK_INSTALL("[Agent] Resolved main symbol %s -> 0x%llx\n",
+                             entry.symbol.c_str(), (unsigned long long)a);
         }
-        main_addr.emplace(e.name, a);
+        main_addr.emplace(entry.symbol, a);
     }
 
     // Hook planned symbols in main module
-    LOG_HOOK_INSTALL("[Agent] Main module has %zu planned hooks\n", main_plan.size());
+    LOG_HOOK_INSTALL("[Agent] Main module has %zu planned hooks (symbol_limit=%zu)\n",
+                     main_plan.size(), symbol_limit);
     for (const auto& entry : main_plan) {
         const auto it = main_addr.find(entry.symbol);
         num_hooks_attempted_++;
@@ -1535,18 +1587,23 @@ uint32_t agent_estimate_hooks(void) {
     ada::agent::HookRegistry registry;
     uint32_t count = 0;
 
-    // Enumerate main module exports and plan hooks
+    // Enumerate main module symbols and plan hooks
     GumModule* main_mod = gum_process_get_main_module();
-    std::vector<ada::internal::ExportEntry> main_exports_entries;
+    std::vector<ada::internal::SymbolEntry> main_symbol_entries;
     if (main_mod) {
-        gum_module_enumerate_exports(main_mod, ada::internal::collect_exports_cb, &main_exports_entries);
+        gum_module_enumerate_symbols(main_mod, ada::internal::collect_symbols_cb, &main_symbol_entries);
     }
-    std::vector<std::string> main_export_names;
-    main_export_names.reserve(main_exports_entries.size());
-    for (auto& e : main_exports_entries) {
-        main_export_names.push_back(e.name);
+    std::vector<std::string> main_symbol_names;
+    main_symbol_names.reserve(main_symbol_entries.size());
+    std::unordered_set<std::string> seen_symbols;
+    for (auto& e : main_symbol_entries) {
+        if (seen_symbols.insert(e.name).second) {
+            main_symbol_names.push_back(e.name);
+        }
     }
-    auto main_plan = ada::agent::plan_module_hooks("<main>", main_export_names, xs, registry);
+    size_t symbol_limit = ada::internal::main_symbol_limit();
+    ada::internal::cap_symbol_names(main_symbol_names, symbol_limit);
+    auto main_plan = ada::agent::plan_module_hooks("<main>", main_symbol_names, xs, registry);
     count += static_cast<uint32_t>(main_plan.size());
 
     // Check if we should skip DSO hooking for testing
@@ -1703,4 +1760,3 @@ static void agent_deinit() {
 }
 
 } // extern "C"
-

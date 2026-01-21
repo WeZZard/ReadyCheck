@@ -90,6 +90,7 @@ pub mod ffi {
                 enabled: c_uint,
             ) -> c_int;
             pub fn frida_controller_start_session(controller: *mut FridaController) -> c_int;
+            pub fn frida_controller_stop_session(controller: *mut FridaController) -> c_int;
             pub fn frida_controller_get_stats(controller: *mut FridaController) -> TracerStats;
             pub fn frida_controller_get_state(controller: *mut FridaController) -> ProcessState;
             pub fn frida_controller_get_flight_state(
@@ -227,6 +228,17 @@ impl TracerController {
 
         if result != 0 {
             anyhow::bail!("Failed to start ATF session");
+        }
+
+        Ok(())
+    }
+
+    /// Stop ATF session output and finalize files
+    pub fn stop_session(&mut self) -> anyhow::Result<()> {
+        let result = unsafe { ffi::frida_controller_stop_session(self.ptr) };
+
+        if result != 0 {
+            anyhow::bail!("Failed to stop ATF session");
         }
 
         Ok(())

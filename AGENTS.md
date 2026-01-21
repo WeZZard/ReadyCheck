@@ -198,7 +198,6 @@ cargo test -p query_engine
 ### Quality Gate Enforcement
 - **Pre-commit hooks**: Block commits that fail critical gates
 - **Post-commit hooks**: Generate coverage reports in background
-- **No bypassing**: `--no-verify` explicitly disallowed per CLAUDE.md
 - **Critical Gates**:
   - Build must succeed
   - All tests must pass

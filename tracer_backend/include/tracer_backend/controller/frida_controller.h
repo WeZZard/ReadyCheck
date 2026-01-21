@@ -57,6 +57,7 @@ int frida_controller_fire_trigger(FridaController* controller);
 int frida_controller_disarm_trigger(FridaController* controller);
 int frida_controller_set_detail_enabled(FridaController* controller, uint32_t enabled);
 int frida_controller_start_session(FridaController* controller);
+int frida_controller_stop_session(FridaController* controller);
 
 // Statistics
 TracerStats frida_controller_get_stats(FridaController* controller);

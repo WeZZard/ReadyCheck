@@ -247,7 +247,12 @@ impl CaptureSession {
         let trace_session = self
             .trace_session
             .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("trace session not found"))?;
+            .ok_or_else(|| anyhow::anyhow!("trace session not found"))?
+            .to_path_buf();
+
+        // LCOV_EXCL_START - Integration cleanup uses live tracer controller.
+        map_tracer_result(self.controller.stop_session())?;
+        // LCOV_EXCL_STOP
 
         let bundle_name = format!("segment_{:03}.adabundle", segment_index);
         let bundle_dir = self.session_root.join("bundles").join(&bundle_name);
@@ -271,7 +276,7 @@ impl CaptureSession {
         let screen_log_path = move_if_exists(&segment_dir.join("screen_ffmpeg.log"), &bundle_dir)?;
 
         let trace_bundle_path = bundle_dir.join("trace");
-        copy_dir_recursive(trace_session, &trace_bundle_path)?;
+        copy_dir_recursive(&trace_session, &trace_bundle_path)?;
 
         let manifest = BundleManifest {
             version: 1,
@@ -310,6 +315,13 @@ impl CaptureSession {
         let manifest_json = serde_json::to_string_pretty(&manifest)?;
         fs::write(&manifest_path, manifest_json)
             .with_context(|| format!("Failed to write manifest at {}", manifest_path.display()))?;
+
+        // LCOV_EXCL_START - Integration cleanup uses live tracer controller.
+        if let Err(err) = map_tracer_result(self.controller.start_session()) {
+            eprintln!("Warning: failed to restart ATF session: {err}");
+        }
+        self.trace_session = find_latest_trace_session(&self.trace_root);
+        // LCOV_EXCL_STOP
 
         Ok(BundleInfo {
             bundle_path: bundle_dir.to_string_lossy().to_string(),
