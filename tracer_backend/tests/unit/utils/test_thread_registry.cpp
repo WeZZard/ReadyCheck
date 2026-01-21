@@ -409,8 +409,9 @@ TEST_F(ThreadRegistryTest, isolation__no_false_sharing__then_independent_perform
     }
     
     const int num_threads = 4;
-    const int iterations = 100000;
-    const int warmup_iterations = 1000;
+    // Longer sample window reduces scheduling noise on loaded systems.
+    const int iterations = 1000000;
+    const int warmup_iterations = iterations / 100;
     std::vector<std::thread> threads;
     std::vector<double> throughputs(num_threads);
     

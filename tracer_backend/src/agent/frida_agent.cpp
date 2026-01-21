@@ -508,9 +508,110 @@ static gboolean collect_exports_cb(const GumExportDetails* details, gpointer use
 
 struct SymbolEntry { std::string name; };
 
+static bool is_stub_section_id(const char* id) {
+    if (id == nullptr || id[0] == '\0') return false;
+#ifdef __APPLE__
+    if (strstr(id, "__stub_helper") != nullptr) return true;
+    if (strstr(id, "__auth_stubs") != nullptr) return true;
+    if (strstr(id, "__stubs") != nullptr) return true;
+#endif
+    return false;
+}
+
+static bool should_skip_swift_symbols() {
+#ifdef __APPLE__
+    const char* env = getenv("ADA_HOOK_SWIFT");
+    if (env && env[0] == '1') return false;
+    return true;
+#else
+    return false;
+#endif
+}
+
+static bool is_swift_symbol_name(const char* name) {
+    if (name == nullptr || name[0] == '\0') return false;
+    if (strncmp(name, "$s", 2) == 0 || strncmp(name, "$S", 2) == 0) return true;
+    if (strncmp(name, "_$s", 3) == 0 || strncmp(name, "_$S", 3) == 0) return true;
+    if (strncmp(name, "swift_", 6) == 0) return true;
+    if (strncmp(name, "_swift_", 7) == 0) return true;
+    if (strncmp(name, "__swift", 7) == 0) return true;
+    return false;
+}
+
+struct SectionRange {
+    GumAddress start;
+    GumAddress end;
+};
+
+static bool is_swift_section_name(const char* name) {
+    if (name == nullptr || name[0] == '\0') return false;
+#ifdef __APPLE__
+    if (strstr(name, "__swift") != nullptr) return true;
+#endif
+    return false;
+}
+
+static bool is_stub_section_name(const char* name) {
+    if (name == nullptr || name[0] == '\0') return false;
+#ifdef __APPLE__
+    if (strstr(name, "__stub_helper") != nullptr) return true;
+    if (strstr(name, "__auth_stubs") != nullptr) return true;
+    if (strstr(name, "__stubs") != nullptr) return true;
+#endif
+    return false;
+}
+
+static gboolean collect_stub_sections_cb(const GumSectionDetails* details, gpointer user_data) {
+    if (details == nullptr || details->size == 0) return TRUE;
+    if (!is_stub_section_name(details->id) && !is_stub_section_name(details->name)) {
+        return TRUE;
+    }
+    auto* ranges = reinterpret_cast<std::vector<SectionRange>*>(user_data);
+    GumAddress end = details->address + static_cast<GumAddress>(details->size);
+    if (end < details->address) return TRUE;
+    ranges->push_back(SectionRange{details->address, end});
+    return TRUE;
+}
+
+struct SwiftSectionScan {
+    bool has_swift;
+};
+
+static gboolean collect_swift_sections_cb(const GumSectionDetails* details, gpointer user_data) {
+    if (details == nullptr) return TRUE;
+    auto* scan = reinterpret_cast<SwiftSectionScan*>(user_data);
+    if (is_swift_section_name(details->id) || is_swift_section_name(details->name)) {
+        scan->has_swift = true;
+        return FALSE;
+    }
+    return TRUE;
+}
+
+static bool module_has_swift_sections(GumModule* mod) {
+    if (!mod) return false;
+    SwiftSectionScan scan{false};
+    gum_module_enumerate_sections(mod, collect_swift_sections_cb, &scan);
+    return scan.has_swift;
+}
+
+static bool is_stub_address(GumAddress addr, const std::vector<SectionRange>& ranges) {
+    for (const auto& range : ranges) {
+        if (addr >= range.start && addr < range.end) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static gboolean collect_symbols_cb(const GumSymbolDetails* details, gpointer user_data) {
     auto* vec = reinterpret_cast<std::vector<SymbolEntry>*>(user_data);
     if (details == nullptr || details->name == nullptr || details->name[0] == '\0') {
+        return TRUE;
+    }
+    if (should_skip_swift_symbols() && is_swift_symbol_name(details->name)) {
+        return TRUE;
+    }
+    if (details->section != nullptr && is_stub_section_id(details->section->id)) {
         return TRUE;
     }
     if (details->type != GUM_SYMBOL_FUNCTION) {
@@ -640,7 +741,20 @@ void AgentContext::install_hooks() {
     const char* main_path = main_mod ? gum_module_get_path(main_mod) : nullptr;
     std::vector<SymbolEntry> main_symbol_entries;
     if (main_mod) {
-        gum_module_enumerate_symbols(main_mod, collect_symbols_cb, &main_symbol_entries);
+        const bool has_swift = module_has_swift_sections(main_mod);
+        if (has_swift && should_skip_swift_symbols()) {
+            std::vector<ExportEntry> main_exports;
+            gum_module_enumerate_exports(main_mod, collect_exports_cb, &main_exports);
+            for (const auto& entry : main_exports) {
+                main_symbol_entries.push_back(SymbolEntry{entry.name});
+            }
+            if (ada::internal::g_agent_verbose) {
+                LOG_HOOK_INSTALL("[Agent] Swift module detected; using exports-only plan (%zu symbols)\n",
+                                 main_symbol_entries.size());
+            }
+        } else {
+            gum_module_enumerate_symbols(main_mod, collect_symbols_cb, &main_symbol_entries);
+        }
 
         // Capture module metadata for symbol resolution (Phase 1 - symbol table persistence)
         const GumMemoryRange* range = gum_module_get_range(main_mod);
@@ -650,6 +764,14 @@ void AgentContext::install_hooks() {
             hook_registry_.set_module_metadata(main_path, range->base_address, range->size, uuid);
             LOG_HOOK_INSTALL("[Agent] Captured main module metadata: base=0x%llx, size=%zu\n",
                     (unsigned long long)range->base_address, (size_t)range->size);
+        }
+    }
+    std::vector<SectionRange> main_stub_ranges;
+    if (main_mod) {
+        gum_module_enumerate_sections(main_mod, collect_stub_sections_cb, &main_stub_ranges);
+        if (ada::internal::g_agent_verbose && !main_stub_ranges.empty()) {
+            LOG_HOOK_INSTALL("[Agent] Collected %zu stub ranges for main module\n",
+                             main_stub_ranges.size());
         }
     }
     std::vector<std::string> main_symbol_names;
@@ -685,6 +807,14 @@ void AgentContext::install_hooks() {
         const auto it = main_addr.find(entry.symbol);
         num_hooks_attempted_++;
         if (it != main_addr.end() && it->second != 0) {
+            if (is_stub_address(it->second, main_stub_ranges)) {
+                if (ada::internal::g_agent_verbose) {
+                    LOG_HOOK_INSTALL("[Agent] Skipping stub symbol: %s at 0x%lx\n",
+                                     entry.symbol.c_str(), (unsigned long)it->second);
+                }
+                hook_results_.emplace_back(entry.symbol, it->second, entry.function_id, false);
+                continue;
+            }
             LOG_HOOK_INSTALL("[Agent] Hooking main symbol: %s at 0x%lx\n", entry.symbol.c_str(), (unsigned long)it->second);
 
             // Verify the address looks valid
@@ -1589,9 +1719,22 @@ uint32_t agent_estimate_hooks(void) {
 
     // Enumerate main module symbols and plan hooks
     GumModule* main_mod = gum_process_get_main_module();
+    std::vector<ada::internal::SectionRange> main_stub_ranges;
+    if (main_mod) {
+        gum_module_enumerate_sections(main_mod, ada::internal::collect_stub_sections_cb, &main_stub_ranges);
+    }
     std::vector<ada::internal::SymbolEntry> main_symbol_entries;
     if (main_mod) {
-        gum_module_enumerate_symbols(main_mod, ada::internal::collect_symbols_cb, &main_symbol_entries);
+        const bool has_swift = ada::internal::module_has_swift_sections(main_mod);
+        if (has_swift && ada::internal::should_skip_swift_symbols()) {
+            std::vector<ada::internal::ExportEntry> main_exports;
+            gum_module_enumerate_exports(main_mod, ada::internal::collect_exports_cb, &main_exports);
+            for (const auto& entry : main_exports) {
+                main_symbol_entries.push_back(ada::internal::SymbolEntry{entry.name});
+            }
+        } else {
+            gum_module_enumerate_symbols(main_mod, ada::internal::collect_symbols_cb, &main_symbol_entries);
+        }
     }
     std::vector<std::string> main_symbol_names;
     main_symbol_names.reserve(main_symbol_entries.size());
@@ -1604,7 +1747,12 @@ uint32_t agent_estimate_hooks(void) {
     size_t symbol_limit = ada::internal::main_symbol_limit();
     ada::internal::cap_symbol_names(main_symbol_names, symbol_limit);
     auto main_plan = ada::agent::plan_module_hooks("<main>", main_symbol_names, xs, registry);
-    count += static_cast<uint32_t>(main_plan.size());
+    for (const auto& entry : main_plan) {
+        GumAddress addr = ada::internal::resolve_export_address(main_mod, entry.symbol);
+        if (addr == 0) continue;
+        if (ada::internal::is_stub_address(addr, main_stub_ranges)) continue;
+        count += 1;
+    }
 
     // Check if we should skip DSO hooking for testing
     bool skip_dso_hooks = false;
