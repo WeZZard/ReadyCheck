@@ -76,6 +76,104 @@ if(APPLE)
         COMMENT "Signing test_runloop with entitlements"
         VERBATIM
     )
+
+    # ===========================================
+    # Swift Test Fixtures
+    # ===========================================
+
+    # test_swift_simple - Minimal Swift executable for symbol hooking tests
+    add_custom_command(
+        OUTPUT ${CMAKE_BINARY_DIR}/bin/test_swift_simple
+        COMMAND swiftc -O -parse-as-library
+            ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/test_swift_simple.swift
+            -o ${CMAKE_BINARY_DIR}/bin/test_swift_simple
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/test_swift_simple.swift
+        COMMENT "Building test_swift_simple"
+    )
+    add_custom_target(test_swift_simple ALL
+        DEPENDS ${CMAKE_BINARY_DIR}/bin/test_swift_simple)
+
+    # Sign test_swift_simple
+    add_custom_command(
+        TARGET test_swift_simple POST_BUILD
+        COMMAND codesign -s "${SIGNING_IDENTITY}" --entitlements "${CMAKE_SOURCE_DIR}/../utils/ada_entitlements.plist" --force ${CMAKE_BINARY_DIR}/bin/test_swift_simple
+        COMMENT "Signing test_swift_simple with entitlements"
+        VERBATIM
+    )
+
+    # test_swift_runloop - NSRunLoop-based Swift program
+    add_custom_command(
+        OUTPUT ${CMAKE_BINARY_DIR}/bin/test_swift_runloop
+        COMMAND swiftc -O -parse-as-library
+            ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/test_swift_runloop.swift
+            -o ${CMAKE_BINARY_DIR}/bin/test_swift_runloop
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/test_swift_runloop.swift
+        COMMENT "Building test_swift_runloop"
+    )
+    add_custom_target(test_swift_runloop ALL
+        DEPENDS ${CMAKE_BINARY_DIR}/bin/test_swift_runloop)
+
+    # Sign test_swift_runloop
+    add_custom_command(
+        TARGET test_swift_runloop POST_BUILD
+        COMMAND codesign -s "${SIGNING_IDENTITY}" --entitlements "${CMAKE_SOURCE_DIR}/../utils/ada_entitlements.plist" --force ${CMAKE_BINARY_DIR}/bin/test_swift_runloop
+        COMMENT "Signing test_swift_runloop with entitlements"
+        VERBATIM
+    )
+
+    # test_swift_server_mock - Server-like Swift program
+    add_custom_command(
+        OUTPUT ${CMAKE_BINARY_DIR}/bin/test_swift_server_mock
+        COMMAND swiftc -O -parse-as-library
+            ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/test_swift_server_mock.swift
+            -o ${CMAKE_BINARY_DIR}/bin/test_swift_server_mock
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/test_swift_server_mock.swift
+        COMMENT "Building test_swift_server_mock"
+    )
+    add_custom_target(test_swift_server_mock ALL
+        DEPENDS ${CMAKE_BINARY_DIR}/bin/test_swift_server_mock)
+
+    # Sign test_swift_server_mock
+    add_custom_command(
+        TARGET test_swift_server_mock POST_BUILD
+        COMMAND codesign -s "${SIGNING_IDENTITY}" --entitlements "${CMAKE_SOURCE_DIR}/../utils/ada_entitlements.plist" --force ${CMAKE_BINARY_DIR}/bin/test_swift_server_mock
+        COMMENT "Signing test_swift_server_mock with entitlements"
+        VERBATIM
+    )
+
+    # test_swiftui_app - SwiftUI GUI application built with Xcode toolchain
+    # This replicates real-world Xcode-built apps where most Swift symbols are
+    # local (non-exported) and only main/_mh_execute_header are exported.
+    # Used for end-to-end testing to validate hypothesis about resolve_export_address().
+    set(XCODE_PROJECT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/TestSwiftUIApp")
+    set(XCODE_DERIVED_DATA "${CMAKE_BINARY_DIR}/xcode_derived")
+
+    add_custom_command(
+        OUTPUT ${CMAKE_BINARY_DIR}/bin/test_swiftui_app
+        COMMAND xcodebuild
+            -project "${XCODE_PROJECT_DIR}/TestSwiftUIApp.xcodeproj"
+            -scheme TestSwiftUIApp
+            -configuration Release
+            -derivedDataPath "${XCODE_DERIVED_DATA}"
+            -quiet
+            build
+        COMMAND ${CMAKE_COMMAND} -E copy
+            "${XCODE_DERIVED_DATA}/Build/Products/Release/TestSwiftUIApp.app/Contents/MacOS/TestSwiftUIApp"
+            "${CMAKE_BINARY_DIR}/bin/test_swiftui_app"
+        DEPENDS "${XCODE_PROJECT_DIR}/TestSwiftUIApp/TestSwiftUIAppApp.swift"
+                "${XCODE_PROJECT_DIR}/TestSwiftUIApp/Info.plist"
+        COMMENT "Building test_swiftui_app with Xcode toolchain (end-to-end fixture)"
+    )
+    add_custom_target(test_swiftui_app ALL
+        DEPENDS ${CMAKE_BINARY_DIR}/bin/test_swiftui_app)
+
+    # Sign test_swiftui_app
+    add_custom_command(
+        TARGET test_swiftui_app POST_BUILD
+        COMMAND codesign -s "${SIGNING_IDENTITY}" --entitlements "${CMAKE_SOURCE_DIR}/../utils/ada_entitlements.plist" --force ${CMAKE_BINARY_DIR}/bin/test_swiftui_app
+        COMMENT "Signing test_swiftui_app with entitlements"
+        VERBATIM
+    )
 endif()
 
 # ===========================================

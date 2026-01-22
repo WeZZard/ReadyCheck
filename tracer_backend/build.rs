@@ -732,6 +732,49 @@ fn main() {
             "out/bin/test_startup_timeout",
             "test/test_startup_timeout",
         ),
+        // Swift test fixtures
+        (
+            "build/bin/test_swift_simple",
+            "test/test_swift_simple",
+        ),
+        (
+            "build/bin/test_swift_runloop",
+            "test/test_swift_runloop",
+        ),
+        (
+            "build/bin/test_swift_server_mock",
+            "test/test_swift_server_mock",
+        ),
+        (
+            "build/bin/test_swiftui_app",
+            "test/test_swiftui_app",
+        ),
+        // Swift detection unit tests
+        (
+            "build/test_swift_detection",
+            "test/test_swift_detection",
+        ),
+        (
+            "build/tests/unit/agent/test_swift_detection",
+            "test/test_swift_detection",
+        ),
+        (
+            "out/bin/test_swift_detection",
+            "test/test_swift_detection",
+        ),
+        // Swift hooks integration tests
+        (
+            "build/test_swift_hooks",
+            "test/test_swift_hooks",
+        ),
+        (
+            "build/tests/integration/agent/test_swift_hooks",
+            "test/test_swift_hooks",
+        ),
+        (
+            "out/bin/test_swift_hooks",
+            "test/test_swift_hooks",
+        ),
     ];
 
     for (src_path, dst_path) in binaries {
@@ -820,8 +863,15 @@ fn main() {
                 }
             }
             
-            // Sign test binaries (test_cli, test_runloop)
-            for test_binary in ["test/test_cli", "test/test_runloop"].iter() {
+            // Sign test binaries (test_cli, test_runloop, and Swift fixtures)
+            for test_binary in [
+                "test/test_cli",
+                "test/test_runloop",
+                "test/test_swift_simple",
+                "test/test_swift_runloop",
+                "test/test_swift_server_mock",
+                "test/test_swiftui_app",
+            ].iter() {
                 let test_path = predictable_dir.join(test_binary);
                 if test_path.exists() {
                     let status = Command::new("codesign")

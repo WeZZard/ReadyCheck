@@ -94,11 +94,71 @@ if(FRIDA_CORE_TEST)
         PROPERTIES LABELS "integration"
     )
     
+    # Swift hooks integration test
+    add_executable(test_swift_hooks
+        test_swift_hooks.cpp
+    )
+    target_include_directories(test_swift_hooks
+        PRIVATE
+            ${CMAKE_SOURCE_DIR}/include
+            ${CMAKE_SOURCE_DIR}/../third_parties/frida-core
+            ${CMAKE_SOURCE_DIR}/../third_parties/frida-gum
+            ${CMAKE_BINARY_DIR}  # For ada_paths.h
+    )
+    target_link_libraries(test_swift_hooks
+        PRIVATE
+            test_main
+            GTest::gtest
+            GTest::gmock
+            tracer_controller
+            frida_agent
+            tracer_utils
+            Threads::Threads
+    )
+    gtest_discover_tests(test_swift_hooks
+        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+        DISCOVERY_MODE PRE_TEST
+        DISCOVERY_TIMEOUT 60
+        PROPERTIES LABELS "integration"
+    )
+
+    # Sign test binaries with debugger entitlements (required for Frida spawn/attach)
+    if(APPLE)
+        # Get signing identity from parent scope
+        if(DEFINED ENV{APPLE_DEVELOPER_ID})
+            set(TEST_SIGNING_IDENTITY "$ENV{APPLE_DEVELOPER_ID}")
+        else()
+            set(TEST_SIGNING_IDENTITY "-")
+        endif()
+
+        add_custom_command(TARGET test_swift_hooks POST_BUILD
+            COMMAND codesign -s "${TEST_SIGNING_IDENTITY}" --entitlements "${CMAKE_SOURCE_DIR}/../utils/ada_entitlements.plist" --force $<TARGET_FILE:test_swift_hooks>
+            COMMENT "Signing test_swift_hooks with debugger entitlements"
+            VERBATIM
+        )
+        add_custom_command(TARGET test_agent_loader POST_BUILD
+            COMMAND codesign -s "${TEST_SIGNING_IDENTITY}" --entitlements "${CMAKE_SOURCE_DIR}/../utils/ada_entitlements.plist" --force $<TARGET_FILE:test_agent_loader>
+            COMMENT "Signing test_agent_loader with debugger entitlements"
+            VERBATIM
+        )
+        add_custom_command(TARGET test_baseline_hooks POST_BUILD
+            COMMAND codesign -s "${TEST_SIGNING_IDENTITY}" --entitlements "${CMAKE_SOURCE_DIR}/../utils/ada_entitlements.plist" --force $<TARGET_FILE:test_baseline_hooks>
+            COMMENT "Signing test_baseline_hooks with debugger entitlements"
+            VERBATIM
+        )
+        add_custom_command(TARGET test_agent_registry_modes POST_BUILD
+            COMMAND codesign -s "${TEST_SIGNING_IDENTITY}" --entitlements "${CMAKE_SOURCE_DIR}/../utils/ada_entitlements.plist" --force $<TARGET_FILE:test_agent_registry_modes>
+            COMMENT "Signing test_agent_registry_modes with debugger entitlements"
+            VERBATIM
+        )
+    endif()
+
     # Install targets
     install(TARGETS
         test_agent_loader
         test_baseline_hooks
         test_agent_registry_modes
+        test_swift_hooks
         RUNTIME DESTINATION bin
     )
 endif()

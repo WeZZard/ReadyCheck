@@ -263,3 +263,31 @@ install(TARGETS
     test_index_event_layout
     RUNTIME DESTINATION bin
 )
+
+# Swift detection unit tests
+add_executable(test_swift_detection
+    test_swift_detection.cpp
+)
+target_include_directories(test_swift_detection
+    PRIVATE
+        ${CMAKE_SOURCE_DIR}/include
+        ${CMAKE_BINARY_DIR}
+)
+target_link_libraries(test_swift_detection
+    PRIVATE
+        test_main
+        GTest::gtest
+        GTest::gmock
+        agent_utils
+        tracer_utils
+)
+gtest_discover_tests(test_swift_detection
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+    DISCOVERY_MODE PRE_TEST
+    DISCOVERY_TIMEOUT 60
+    PROPERTIES LABELS "unit"
+)
+install(TARGETS
+    test_swift_detection
+    RUNTIME DESTINATION bin
+)

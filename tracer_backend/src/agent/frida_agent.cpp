@@ -45,6 +45,7 @@ extern "C" {
 #include <tracer_backend/agent/comprehensive_hooks.h>
 #include <tracer_backend/agent/dso_management.h>
 #include <tracer_backend/agent/module_uuid.h>
+#include <tracer_backend/agent/swift_detection.h>
 
 // #define ADA_MINIMAL_HOOKS 1  // Disabled to enable full event capture
 
@@ -506,60 +507,29 @@ static gboolean collect_exports_cb(const GumExportDetails* details, gpointer use
     return TRUE;
 }
 
-struct SymbolEntry { std::string name; };
+struct SymbolEntry {
+    std::string name;
+    GumAddress address;
+};
 
+// Use functions from swift_detection.h for stub/swift detection
+// These wrappers maintain the static function interface for compatibility
 static bool is_stub_section_id(const char* id) {
-    if (id == nullptr || id[0] == '\0') return false;
-#ifdef __APPLE__
-    if (strstr(id, "__stub_helper") != nullptr) return true;
-    if (strstr(id, "__auth_stubs") != nullptr) return true;
-    if (strstr(id, "__stubs") != nullptr) return true;
-#endif
-    return false;
+    return ada_is_stub_section_id(id);
 }
 
-static bool should_skip_swift_symbols() {
-#ifdef __APPLE__
-    const char* env = getenv("ADA_HOOK_SWIFT");
-    if (env && env[0] == '1') return false;
-    return true;
-#else
-    return false;
-#endif
+static bool is_stub_section_name(const char* name) {
+    return ada_is_stub_section_name(name);
 }
 
-static bool is_swift_symbol_name(const char* name) {
-    if (name == nullptr || name[0] == '\0') return false;
-    if (strncmp(name, "$s", 2) == 0 || strncmp(name, "$S", 2) == 0) return true;
-    if (strncmp(name, "_$s", 3) == 0 || strncmp(name, "_$S", 3) == 0) return true;
-    if (strncmp(name, "swift_", 6) == 0) return true;
-    if (strncmp(name, "_swift_", 7) == 0) return true;
-    if (strncmp(name, "__swift", 7) == 0) return true;
-    return false;
+static bool is_swift_section_name(const char* name) {
+    return ada_is_swift_section_name(name);
 }
 
 struct SectionRange {
     GumAddress start;
     GumAddress end;
 };
-
-static bool is_swift_section_name(const char* name) {
-    if (name == nullptr || name[0] == '\0') return false;
-#ifdef __APPLE__
-    if (strstr(name, "__swift") != nullptr) return true;
-#endif
-    return false;
-}
-
-static bool is_stub_section_name(const char* name) {
-    if (name == nullptr || name[0] == '\0') return false;
-#ifdef __APPLE__
-    if (strstr(name, "__stub_helper") != nullptr) return true;
-    if (strstr(name, "__auth_stubs") != nullptr) return true;
-    if (strstr(name, "__stubs") != nullptr) return true;
-#endif
-    return false;
-}
 
 static gboolean collect_stub_sections_cb(const GumSectionDetails* details, gpointer user_data) {
     if (details == nullptr || details->size == 0) return TRUE;
@@ -603,27 +573,77 @@ static bool is_stub_address(GumAddress addr, const std::vector<SectionRange>& ra
     return false;
 }
 
+static bool is_text_section(const GumSymbolSection* section) {
+    if (section == nullptr || section->id == nullptr) {
+        return false;
+    }
+    // Section ID format: "__SEGMENT,__section" e.g. "__TEXT,__text"
+    // Only accept the actual text section where code resides
+    return strstr(section->id, "__text") != nullptr;
+}
+
+// Check if a Swift symbol is a witness table or metadata helper that should not be hooked.
+// These are runtime internal symbols that, if hooked, corrupt Swift's type system.
+static bool is_swift_runtime_helper(const char* name) {
+    if (name == nullptr || name[0] == '\0') {
+        return false;
+    }
+    size_t len = strlen(name);
+    if (len < 3) {
+        return false;
+    }
+    // Swift mangled symbols start with $s or _$s
+    bool is_swift = (name[0] == '$' && name[1] == 's') ||
+                    (name[0] == '_' && name[1] == '$' && name[2] == 's');
+    if (!is_swift) {
+        return false;
+    }
+    // Check suffixes that indicate witness tables and metadata accessors:
+    // wcp = witness table copy
+    // wca = witness table accessor
+    // wct = witness table copy template
+    // Wl/WL = witness table lazy accessor
+    // Ma = metadata accessor
+    const char* end = name + len;
+    if (len >= 3) {
+        const char* suffix3 = end - 3;
+        if (strcmp(suffix3, "wcp") == 0 ||
+            strcmp(suffix3, "wca") == 0 ||
+            strcmp(suffix3, "wct") == 0) {
+            return true;
+        }
+    }
+    if (len >= 2) {
+        const char* suffix2 = end - 2;
+        if (strcmp(suffix2, "Wl") == 0 ||
+            strcmp(suffix2, "WL") == 0 ||
+            strcmp(suffix2, "Ma") == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static gboolean collect_symbols_cb(const GumSymbolDetails* details, gpointer user_data) {
     auto* vec = reinterpret_cast<std::vector<SymbolEntry>*>(user_data);
     if (details == nullptr || details->name == nullptr || details->name[0] == '\0') {
         return TRUE;
     }
-    if (should_skip_swift_symbols() && is_swift_symbol_name(details->name)) {
+    if (!is_text_section(details->section)) {
         return TRUE;
-    }
-    if (details->section != nullptr && is_stub_section_id(details->section->id)) {
-        return TRUE;
-    }
-    if (details->type != GUM_SYMBOL_FUNCTION) {
-        if (details->section == nullptr ||
-            (details->section->protection & GUM_PAGE_EXECUTE) == 0) {
-            return TRUE;
-        }
     }
     if (details->address == 0) {
         return TRUE;
     }
-    vec->push_back(SymbolEntry{details->name});
+    // Skip Mach-O header symbol (not hookable)
+    if (strcmp(details->name, "_mh_execute_header") == 0) {
+        return TRUE;
+    }
+    // Skip Swift witness table and metadata helpers (hooking corrupts Swift runtime)
+    if (is_swift_runtime_helper(details->name)) {
+        return TRUE;
+    }
+    vec->push_back(SymbolEntry{details->name, details->address});
     return TRUE;
 }
 
@@ -741,19 +761,29 @@ void AgentContext::install_hooks() {
     const char* main_path = main_mod ? gum_module_get_path(main_mod) : nullptr;
     std::vector<SymbolEntry> main_symbol_entries;
     if (main_mod) {
-        const bool has_swift = module_has_swift_sections(main_mod);
-        if (has_swift && should_skip_swift_symbols()) {
+        // Check if ADA_HOOK_SWIFT=0 (escape hatch to force exports-only mode)
+        // Default behavior: enumerate all symbols (Swift functions included)
+        // Stub addresses are filtered at hook installation time
+        const char* hook_swift_env = getenv("ADA_HOOK_SWIFT");
+        const bool force_exports_only = (hook_swift_env && hook_swift_env[0] == '0');
+
+        if (force_exports_only) {
             std::vector<ExportEntry> main_exports;
             gum_module_enumerate_exports(main_mod, collect_exports_cb, &main_exports);
             for (const auto& entry : main_exports) {
-                main_symbol_entries.push_back(SymbolEntry{entry.name});
+                // ExportEntry doesn't have address, use 0 (will fallback to resolve_export_address)
+                main_symbol_entries.push_back(SymbolEntry{entry.name, 0});
             }
             if (ada::internal::g_agent_verbose) {
-                LOG_HOOK_INSTALL("[Agent] Swift module detected; using exports-only plan (%zu symbols)\n",
+                LOG_HOOK_INSTALL("[Agent] ADA_HOOK_SWIFT=0; using exports-only plan (%zu symbols)\n",
                                  main_symbol_entries.size());
             }
         } else {
             gum_module_enumerate_symbols(main_mod, collect_symbols_cb, &main_symbol_entries);
+            if (ada::internal::g_agent_verbose) {
+                LOG_HOOK_INSTALL("[Agent] Enumerating all symbols (Swift included): %zu symbols\n",
+                                 main_symbol_entries.size());
+            }
         }
 
         // Capture module metadata for symbol resolution (Phase 1 - symbol table persistence)
@@ -777,9 +807,14 @@ void AgentContext::install_hooks() {
     std::vector<std::string> main_symbol_names;
     main_symbol_names.reserve(main_symbol_entries.size());
     std::unordered_set<std::string> seen_symbols;
+    // Build enumerated_addresses map to preserve addresses from enumeration
+    // This is critical for local/non-exported Swift symbols
+    std::unordered_map<std::string, GumAddress> enumerated_addresses;
+    enumerated_addresses.reserve(main_symbol_entries.size());
     for (auto& e : main_symbol_entries) {
         if (seen_symbols.insert(e.name).second) {
             main_symbol_names.push_back(e.name);
+            enumerated_addresses.emplace(e.name, e.address);
         }
     }
     size_t symbol_limit = main_symbol_limit();
@@ -788,11 +823,23 @@ void AgentContext::install_hooks() {
     // Plan main hooks
     auto main_plan = ada::agent::plan_module_hooks(main_path ? main_path : "<main>", main_symbol_names, xs, hook_registry_);
 
-    // Build precise address lookup for main module using symbol/export resolution
+    // Build precise address lookup for main module
+    // First use addresses from enumeration (works for local/internal symbols)
+    // Fall back to resolve_export_address for exports-only mode
     std::unordered_map<std::string, GumAddress> main_addr;
     main_addr.reserve(main_plan.size());
     for (const auto& entry : main_plan) {
-        GumAddress a = resolve_export_address(main_mod, entry.symbol);
+        GumAddress a = 0;
+
+        // First: use address from enumeration (works for local symbols)
+        auto enum_it = enumerated_addresses.find(entry.symbol);
+        if (enum_it != enumerated_addresses.end() && enum_it->second != 0) {
+            a = enum_it->second;
+        } else {
+            // Fallback: export/symbol lookup (for exports-only mode)
+            a = resolve_export_address(main_mod, entry.symbol);
+        }
+
         if (ada::internal::g_agent_verbose) {
             LOG_HOOK_INSTALL("[Agent] Resolved main symbol %s -> 0x%llx\n",
                              entry.symbol.c_str(), (unsigned long long)a);
@@ -1725,12 +1772,17 @@ uint32_t agent_estimate_hooks(void) {
     }
     std::vector<ada::internal::SymbolEntry> main_symbol_entries;
     if (main_mod) {
-        const bool has_swift = ada::internal::module_has_swift_sections(main_mod);
-        if (has_swift && ada::internal::should_skip_swift_symbols()) {
+        // Check if ADA_HOOK_SWIFT=0 (escape hatch to force exports-only mode)
+        // Default behavior: enumerate all symbols (Swift functions included)
+        const char* hook_swift_env = getenv("ADA_HOOK_SWIFT");
+        const bool force_exports_only = (hook_swift_env && hook_swift_env[0] == '0');
+
+        if (force_exports_only) {
             std::vector<ada::internal::ExportEntry> main_exports;
             gum_module_enumerate_exports(main_mod, ada::internal::collect_exports_cb, &main_exports);
             for (const auto& entry : main_exports) {
-                main_symbol_entries.push_back(ada::internal::SymbolEntry{entry.name});
+                // ExportEntry doesn't have address, use 0 (will fallback to resolve_export_address)
+                main_symbol_entries.push_back(ada::internal::SymbolEntry{entry.name, 0});
             }
         } else {
             gum_module_enumerate_symbols(main_mod, ada::internal::collect_symbols_cb, &main_symbol_entries);
@@ -1739,16 +1791,28 @@ uint32_t agent_estimate_hooks(void) {
     std::vector<std::string> main_symbol_names;
     main_symbol_names.reserve(main_symbol_entries.size());
     std::unordered_set<std::string> seen_symbols;
+    // Build enumerated_addresses map to preserve addresses from enumeration
+    std::unordered_map<std::string, GumAddress> enumerated_addresses;
+    enumerated_addresses.reserve(main_symbol_entries.size());
     for (auto& e : main_symbol_entries) {
         if (seen_symbols.insert(e.name).second) {
             main_symbol_names.push_back(e.name);
+            enumerated_addresses.emplace(e.name, e.address);
         }
     }
     size_t symbol_limit = ada::internal::main_symbol_limit();
     ada::internal::cap_symbol_names(main_symbol_names, symbol_limit);
     auto main_plan = ada::agent::plan_module_hooks("<main>", main_symbol_names, xs, registry);
     for (const auto& entry : main_plan) {
-        GumAddress addr = ada::internal::resolve_export_address(main_mod, entry.symbol);
+        GumAddress addr = 0;
+        // First: use address from enumeration (works for local symbols)
+        auto enum_it = enumerated_addresses.find(entry.symbol);
+        if (enum_it != enumerated_addresses.end() && enum_it->second != 0) {
+            addr = enum_it->second;
+        } else {
+            // Fallback: export/symbol lookup (for exports-only mode)
+            addr = ada::internal::resolve_export_address(main_mod, entry.symbol);
+        }
         if (addr == 0) continue;
         if (ada::internal::is_stub_address(addr, main_stub_ranges)) continue;
         count += 1;
