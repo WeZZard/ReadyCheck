@@ -144,48 +144,102 @@ Open Claude (web or API) and provide:
 
 ---
 
-## Findings Template
-
-After running the spike, document:
+## Spike Results (2026-01-24)
 
 ### What Worked
-```
--
-```
 
-### What Broke
-```
--
-```
+1. **Capture** (`ada capture start`)
+   - Creates `.adabundle` directory correctly
+   - Records screen.mp4 (H.264, 4096x2304)
+   - Records voice.wav (48kHz mono)
+   - Captures trace events across 6 threads
+   - Graceful shutdown on Ctrl+C
+   - Bundle manifest written correctly
+
+2. **Bundle Structure**
+   ```
+   session_*.adabundle/
+   ├── manifest.json       ✅ Valid JSON with expected fields
+   ├── screen.mp4          ✅ Playable (7.7s, 2.9 Mbps)
+   ├── voice.wav           ✅ Playable (6.5s, 48kHz)
+   ├── voice.m4a           ✅ Compressed version
+   └── trace/
+       └── session_*/pid_*/
+           ├── manifest.json  ✅ Has symbols with readable names
+           └── thread_*/      ✅ ATF files present
+   ```
+
+3. **Query** (`ada query`)
+   - Summary works: shows threads, symbols, event counts
+   - Events work: shows timestamp, thread, depth, kind, function name
+   - JSON format works (with correct flag position)
+   - Function names are resolved (not hex IDs)
+
+4. **Screenshot Extraction**
+   - `ffmpeg -ss <time> -i screen.mp4 -frames:v 1 out.png` works
+   - High-res output (4096x2304)
+
+### What Broke / Issues Found
+
+1. **Environment Variable Required**
+   - Must set `ADA_AGENT_RPATH_SEARCH_PATHS=./target/release/tracer_backend/lib`
+   - Without this: "Agent library not found" error
+   - **Fix needed**: Auto-detect or document requirement
+
+2. **Query Doesn't Accept Bundle Path**
+   - `ada query /path/to.adabundle summary` fails
+   - Must use direct trace path: `ada query /path/to.adabundle/trace/session_*/pid_* summary`
+   - **Fix needed (E2)**: Parse bundle manifest to find trace_session
+
+3. **Query Flag Order Matters**
+   - `ada query <path> events --format json` → outputs TEXT
+   - `ada query -f json <path> events` → outputs JSON ✅
+   - **Fix needed**: Accept flags in any position
+
+4. **Timestamp Format**
+   - Events use nanoseconds (large numbers like 949066051830500)
+   - Not CPU cycles as originally planned
+   - Need to document/verify alignment with voice/screen
 
 ### What's Missing
-```
--
-```
+
+1. **Whisper CLI** - Not installed (external dependency)
+2. **Claude Integration Test** - Not completed (pending Whisper)
+3. **Time Correlation** - Need to verify timestamp alignment across modalities
 
 ### Insights for E2-E5
-```
-E2 (Format Adapter):
--
 
-E3 (Session Management):
--
+**E2 (Format Adapter):**
+- Current JSON format is usable but verbose
+- Function names already resolved - good
+- `line-complete` format still desirable for grep-ability
+- **Priority**: Fix bundle path resolution first, then add formats
 
-E4 (Analysis Pipeline):
--
+**E3 (Session Management):**
+- Bundle manifest already contains `trace_session` path
+- Skills can parse this to find trace data
+- `active_session.json` may not be needed if we just pass bundle path
+- **Simplification opportunity**: Just store bundle path
 
-E5 (Skills):
--
-```
+**E4 (Analysis Pipeline):**
+- ffmpeg screenshot extraction works out of the box
+- Whisper needs installation (`pip install openai-whisper`)
+- Time filtering can be done post-query (filter JSON by timestamp_ns)
+- **Simplification**: May not need time-range in ada query
+
+**E5 (Skills):**
+- Need to set `ADA_AGENT_RPATH_SEARCH_PATHS` in skill
+- Need to handle bundle path → trace path resolution
+- JSON output works for LLM consumption
 
 ---
 
-## Deliverables
+## Blockers for Next Steps
 
-1. Completed spike with observations
-2. Findings document
-3. Updated E2-E5 based on reality
+1. **Fix query bundle path resolution** - Can't proceed with clean skill integration
+2. **Install Whisper** - Required for voice transcription
+3. **Test Claude integration** - Manual test with captured data
 
 ## Status
 
-Not started
+**In Progress** - Spike complete, findings documented, blockers identified
