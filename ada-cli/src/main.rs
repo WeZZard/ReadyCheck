@@ -11,6 +11,7 @@
 mod capture;
 mod ffi;
 mod query;
+mod session_state;
 mod symbols;
 mod trace;
 
@@ -49,18 +50,25 @@ enum Commands {
     #[command(subcommand)]
     Capture(capture::CaptureCommands),
 
+    /// Manage ADA capture sessions
+    #[command(subcommand)]
+    Session(session_state::SessionCommands),
+
     // LCOV_EXCL_START - Struct field definitions
     /// Query trace data from a bundle
     ///
+    /// Bundle can be specified as:
+    ///   - @latest: Most recent session
+    ///   - Session ID: e.g., session_2026_01_24_14_56_19_a1b2c3
+    ///   - Path: Direct path to session directory or .adabundle
+    ///
     /// Examples:
-    ///   ada query /path/to/bundle.adabundle summary
-    ///   ada query /path/to/bundle.adabundle events --limit 100
-    ///   ada query /path/to/bundle.adabundle events --thread 0 --limit 50
+    ///   ada query @latest summary
+    ///   ada query session_2026_01_24_14_56_19_a1b2c3 events --limit 100
+    ///   ada query ~/.ada/sessions/session_xxx/ events --thread 0 --limit 50
     ///   ada query /path/to/bundle.adabundle functions
-    ///   ada query /path/to/bundle.adabundle threads
-    ///   ada query /path/to/bundle.adabundle calls main --format json
     Query {
-        /// Path to .adabundle directory
+        /// Bundle path: @latest, session ID, or directory path
         bundle: PathBuf,
 
         #[command(subcommand)]
@@ -147,12 +155,13 @@ fn main() -> anyhow::Result<()> {
         tracing::info!("Verbose mode enabled");
     }
 
+    // LCOV_EXCL_START - CLI entry point, tested via integration
     match cli.command {
         Commands::Trace(cmd) => trace::run(cmd),
         Commands::Symbols(cmd) => symbols::run(cmd),
         Commands::Capture(cmd) => capture::run(cmd),
-        // LCOV_EXCL_START - CLI entry point requires real session files
+        Commands::Session(cmd) => session_state::run(cmd),
         Commands::Query { bundle, command } => query::run(&bundle, command),
-        // LCOV_EXCL_STOP
     }
+    // LCOV_EXCL_STOP
 }
