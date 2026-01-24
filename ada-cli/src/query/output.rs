@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use serde::Serialize;
 
 use super::events::{Event, EventKind};
-use super::session::{Session, SessionSummary, ThreadInfo};
+use super::session::{Session, SessionSummary, ThreadInfo, TimeInfo};
 
 /// Output format
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -215,6 +215,42 @@ fn format_summary_json(summary: &SessionSummary) -> String {
     serde_json::to_string_pretty(&json_summary).unwrap_or_else(|_| "{}".to_string())
 }
 
+/// Format time information
+// LCOV_EXCL_START - Integration tested via CLI
+pub fn format_time_info(time_info: &TimeInfo, format: OutputFormat) -> String {
+    match format {
+        OutputFormat::Text | OutputFormat::Line => format_time_info_text(time_info),
+        OutputFormat::Json => format_time_info_json(time_info),
+    }
+}
+
+fn format_time_info_text(time_info: &TimeInfo) -> String {
+    let mut output = String::new();
+    output.push_str(&format!("Time Start:  {} ns\n", time_info.time_start_ns));
+    output.push_str(&format!("Time End:    {} ns\n", time_info.time_end_ns));
+    output.push_str(&format!("Duration:    {} ns ({:.3} s)\n", time_info.duration_ns, time_info.duration_secs));
+    output
+}
+
+fn format_time_info_json(time_info: &TimeInfo) -> String {
+    #[derive(Serialize)]
+    struct JsonTimeInfo {
+        time_start_ns: u64,
+        time_end_ns: u64,
+        duration_ns: u64,
+        duration_secs: f64,
+    }
+
+    let json_time_info = JsonTimeInfo {
+        time_start_ns: time_info.time_start_ns,
+        time_end_ns: time_info.time_end_ns,
+        duration_ns: time_info.duration_ns,
+        duration_secs: time_info.duration_secs,
+    };
+
+    serde_json::to_string_pretty(&json_time_info).unwrap_or_else(|_| "{}".to_string())
+}
+// LCOV_EXCL_STOP
 /// Format function list
 // LCOV_EXCL_START - Integration tested via CLI
 pub fn format_functions(symbols: &[&str], format: OutputFormat) -> String {
@@ -720,5 +756,37 @@ mod tests {
             depth: 1,
         };
         assert_eq!(tracker.process_event(&unknown), "7"); // just thread_id
+    }
+
+    #[test]
+    fn test_format_time_info_text__basic__then_formatted() {
+        use super::super::session::TimeInfo;
+        let time_info = TimeInfo {
+            time_start_ns: 1000000000,
+            time_end_ns: 2000000000,
+            duration_ns: 1000000000,
+            duration_secs: 1.0,
+        };
+        let output = super::format_time_info(&time_info, OutputFormat::Text);
+        assert!(output.contains("Time Start:  1000000000 ns"));
+        assert!(output.contains("Time End:    2000000000 ns"));
+        assert!(output.contains("Duration:    1000000000 ns (1.000 s)"));
+    }
+
+    #[test]
+    fn test_format_time_info_json__basic__then_valid_json() {
+        use super::super::session::TimeInfo;
+        let time_info = TimeInfo {
+            time_start_ns: 1000000000,
+            time_end_ns: 2000000000,
+            duration_ns: 1000000000,
+            duration_secs: 1.0,
+        };
+        let output = super::format_time_info(&time_info, OutputFormat::Json);
+        let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+        assert_eq!(parsed["time_start_ns"], 1000000000u64);
+        assert_eq!(parsed["time_end_ns"], 2000000000u64);
+        assert_eq!(parsed["duration_ns"], 1000000000u64);
+        assert_eq!(parsed["duration_secs"], 1.0);
     }
 }

@@ -106,6 +106,14 @@ pub enum QueryCommands {
         #[arg(short, long, default_value = "0")]
         offset: usize,
 
+        /// Filter events with timestamp >= this value (nanoseconds)
+        #[arg(long)]
+        since_ns: Option<u64>,
+
+        /// Filter events with timestamp <= this value (nanoseconds)
+        #[arg(long)]
+        until_ns: Option<u64>,
+
         /// Output format (text, json, or line)
         #[arg(short = 'f', long, default_value = "text")]
         format: String,
@@ -135,6 +143,73 @@ pub enum QueryCommands {
         limit: usize,
 
         /// Output format (text, json, or line)
+        #[arg(short = 'f', long, default_value = "text")]
+        format: String,
+    },
+
+    /// Show session time bounds and duration
+    TimeInfo {
+        /// Output format (text or json)
+        #[arg(short, long, default_value = "text")]
+        format: String,
+    },
+
+    /// Show available query capabilities and tool requirements
+    Capabilities {
+        /// Output format (text or json)
+        #[arg(short, long, default_value = "text")]
+        format: String,
+    },
+
+    /// Transcribe voice recording from session
+    #[command(subcommand)]
+    Transcribe(TranscribeCommands),
+
+    /// Extract screenshot from screen recording
+    Screenshot {
+        /// Time in seconds to extract frame from
+        #[arg(short, long)]
+        time: f64,
+
+        /// Output file path (if not specified, outputs to session directory)
+        #[arg(short, long)]
+        output: Option<std::path::PathBuf>,
+
+        /// Output format (text or json)
+        #[arg(short = 'f', long, default_value = "text")]
+        format: String,
+    },
+}
+
+/// Transcribe subcommands
+#[derive(Subcommand)]
+pub enum TranscribeCommands {
+    /// Get transcript metadata without loading full content
+    Info {
+        /// Output format (text or json)
+        #[arg(short, long, default_value = "text")]
+        format: String,
+    },
+
+    /// Get transcript segments with pagination
+    Segments {
+        /// Number of segments to skip
+        #[arg(short, long, default_value = "0")]
+        offset: usize,
+
+        /// Maximum number of segments to return
+        #[arg(short, long, default_value = "20")]
+        limit: usize,
+
+        /// Filter segments starting at or after this time (seconds)
+        #[arg(long)]
+        since: Option<f64>,
+
+        /// Filter segments ending at or before this time (seconds)
+        #[arg(long)]
+        until: Option<f64>,
+
+        /// Output format (text or json)
         #[arg(short = 'f', long, default_value = "text")]
         format: String,
     },

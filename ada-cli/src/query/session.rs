@@ -83,6 +83,18 @@ pub struct SessionSummary {
     pub thread_event_counts: Vec<(u32, usize)>,
 }
 
+/// Time information for a session
+pub struct TimeInfo {
+    /// Session start time in nanoseconds
+    pub time_start_ns: u64,
+    /// Session end time in nanoseconds
+    pub time_end_ns: u64,
+    /// Duration in nanoseconds
+    pub duration_ns: u64,
+    /// Duration in seconds (floating point)
+    pub duration_secs: f64,
+}
+
 impl Session {
     /// Open a trace session from a trace directory path
     ///
@@ -179,6 +191,21 @@ impl Session {
         self.manifest.threads.iter().collect()
     }
 
+    /// Get time information for the session
+    pub fn time_info(&self) -> TimeInfo {
+        let duration_ns = self
+            .manifest
+            .time_end_ns
+            .saturating_sub(self.manifest.time_start_ns);
+        let duration_secs = duration_ns as f64 / 1_000_000_000.0;
+        TimeInfo {
+            time_start_ns: self.manifest.time_start_ns,
+            time_end_ns: self.manifest.time_end_ns,
+            duration_ns,
+            duration_secs,
+        }
+    }
+
     /// Query events with optional filters
     // LCOV_EXCL_START - Reads ATF files from filesystem
     pub fn query_events(
@@ -187,6 +214,8 @@ impl Session {
         function_filter: Option<&str>,
         limit: Option<usize>,
         offset: Option<usize>,
+        since_ns: Option<u64>,
+        until_ns: Option<u64>,
     ) -> Result<Vec<Event>> {
         let offset = offset.unwrap_or(0);
         let limit = limit.unwrap_or(1000);
@@ -237,6 +266,19 @@ impl Session {
                         continue;
                     }
                 }
+
+                // Apply time filters
+                if let Some(since) = since_ns {
+                    if event.timestamp_ns < since {
+                        continue;
+                    }
+                }
+                if let Some(until) = until_ns {
+                    if event.timestamp_ns > until {
+                        continue;
+                    }
+                }
+
                 all_events.push(event);
             }
         }
@@ -344,5 +386,19 @@ mod tests {
         assert_eq!(threads.len(), 1);
         assert_eq!(threads[0].id, 0);
         assert!(threads[0].has_detail);
+    }
+
+    #[test]
+    fn test_session__time_info__then_returns_time_bounds() {
+        let temp_dir = create_test_session();
+        let trace_dir = temp_dir.path().join("trace");
+
+        let session = Session::open(&trace_dir).unwrap();
+        let time_info = session.time_info();
+
+        assert_eq!(time_info.time_start_ns, 0);
+        assert_eq!(time_info.time_end_ns, 1000000);
+        assert_eq!(time_info.duration_ns, 1000000);
+        assert!((time_info.duration_secs - 0.001).abs() < 1e-9);
     }
 }

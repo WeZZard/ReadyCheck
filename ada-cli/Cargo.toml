@@ -42,6 +42,7 @@ which = "6.0"
 ctrlc = "3.4"
 memmap2 = "0.9"
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+tempfile = "3.10"
 
 # Tracer control
 tracer_backend = { path = "../tracer_backend" }
