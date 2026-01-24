@@ -6,7 +6,7 @@ Session lifecycle and state persistence
 
 ## Depends On
 
-E1_Format_Adapter (uses `ada query` output)
+E2_Format_Adapter (uses unified session directory format)
 
 ## Design Decision: Multi-Session with Context-Based Memory
 
@@ -15,11 +15,13 @@ E1_Format_Adapter (uses `ada query` output)
 When a capture starts, ADA CLI outputs structured session info to stdout:
 ```
 ADA Session Started:
-  ID: session_20240124_103000_MyApp
+  ID: session_2024_01_24_10_30_00_a1b2c3
   App: MyApp (com.example.myapp)
-  Bundle: /path/to/session.adabundle
+  Bundle: ~/.ada/sessions/session_2024_01_24_10_30_00_a1b2c3/
   Time: 2024-01-24T10:30:00Z
 ```
+
+**Note:** The session directory IS the bundle - no nested `.adabundle` directory.
 
 This information:
 1. Becomes part of Claude's conversation context
@@ -39,30 +41,50 @@ This information:
       │ ada capture start                      │ user resumes
       ▼                                        │ asks about session
 ┌─────────────┐                                ▼
-│ ~/.ada/     │◄──── ada query <bundle> ───── Claude finds bundle
-│ sessions/   │      ada session latest        path via attention
+│ ~/.ada/     │◄──── ada query @latest ────── Claude uses @latest
+│ sessions/   │      ada session latest        or session ID
 └─────────────┘
 ```
+
+## Bundle Path Resolution
+
+Query commands support multiple path formats:
+
+| Format | Example | Description |
+|--------|---------|-------------|
+| `@latest` | `ada query @latest summary` | Most recent session |
+| Session ID | `ada query session_2024_01_24_10_30_00_a1b2c3 summary` | By session ID |
+| Direct path | `ada query ~/.ada/sessions/<id>/ summary` | Absolute path |
+
+**Resolution precedence:**
+1. `@latest` → Resolves via `ada session latest`
+2. Session ID → Looks up in `~/.ada/sessions/<id>/`
+3. Direct path → Used as-is
 
 ## Directory Structure
 
 ```
 ~/.ada/
 ├── sessions/
-│   ├── session_20240124_103000_MyApp.json
-│   ├── session_20240124_110500_OtherApp.json
+│   ├── session_2024_01_24_10_30_00_a1b2c3/    # Session directory IS the bundle
+│   │   ├── session.json                       # Session metadata
+│   │   ├── trace/                             # Trace data
+│   │   └── ...                                # Other captured artifacts
+│   ├── session_2024_01_24_11_05_00_d4e5f6/
+│   │   └── ...
 │   └── ...
-└── config.json                 # Future: user preferences
+└── config.json                                # Future: user preferences
 ```
+
+**Key change:** Session directory IS the bundle format - no nested `.adabundle` directory.
 
 ## Session State Schema
 
-Location: `~/.ada/sessions/<session_id>.json`
+Location: `~/.ada/sessions/<session_id>/session.json`
 
 ```json
 {
-  "session_id": "session_20240124_103000_MyApp",
-  "session_path": "/path/to/session.adabundle",
+  "session_id": "session_2024_01_24_10_30_00_a1b2c3",
   "start_time": "2024-01-24T10:30:00Z",
   "end_time": "2024-01-24T10:35:00Z",
   "app_info": {
@@ -75,9 +97,12 @@ Location: `~/.ada/sessions/<session_id>.json`
 }
 ```
 
-**Session ID format**: `session_<YYYYMMDD_HHMMSS>_<app_name>` (unique, sortable)
+**Session ID format**: `session_YYYY_MM_DD_hh_mm_ss_<short_hash>` (unique, sortable)
 
-**Note:** No `claude_session_id` field - linking to Claude happens via conversation context, not stored state.
+- Underscores separate date/time components for readability
+- Short hash (6 chars) ensures uniqueness for rapid successive captures
+
+**Note:** No `session_path` field needed - the session directory IS the bundle path. No `claude_session_id` field - linking to Claude happens via conversation context, not stored state.
 
 ## CLI Commands
 
@@ -107,30 +132,32 @@ ada session cleanup               # Mark dead sessions as Failed
 ## Concurrency Model
 
 ```
-┌─────────────────┐                    ┌───────────────────────────┐
-│  ada capture    │───── registers ───►│ ~/.ada/sessions/          │
-│  (App A)        │                    │   session_..._AppA.json   │
-└─────────────────┘                    └───────────────────────────┘
+┌─────────────────┐                    ┌─────────────────────────────────────┐
+│  ada capture    │───── registers ───►│ ~/.ada/sessions/                    │
+│  (App A)        │                    │   session_..._a1b2c3/session.json   │
+└─────────────────┘                    └─────────────────────────────────────┘
 
-┌─────────────────┐                    ┌───────────────────────────┐
-│  ada capture    │───── registers ───►│ ~/.ada/sessions/          │
-│  (App B)        │                    │   session_..._AppB.json   │
-└─────────────────┘                    └───────────────────────────┘
-                                                   │
-                    ┌──────────────────────────────┴──────────────────────────────┐
-                    │ reads                        reads                          reads
+┌─────────────────┐                    ┌─────────────────────────────────────┐
+│  ada capture    │───── registers ───►│ ~/.ada/sessions/                    │
+│  (App B)        │                    │   session_..._d4e5f6/session.json   │
+└─────────────────┘                    └─────────────────────────────────────┘
+                                                       │
+                    ┌──────────────────────────────────┴──────────────────────────────┐
+                    │ queries                      queries                        queries
                     ▼                              ▼                              ▼
           ┌─────────────────┐            ┌─────────────────┐            ┌─────────────────┐
           │ Claude Code #1  │            │ Claude Code #2  │            │ Claude Code #3  │
-          │ queries App A   │            │ queries App B   │            │ queries both    │
+          │ ada query       │            │ ada query       │            │ ada query       │
+          │ @latest events  │            │ <session_id>    │            │ <path> events   │
           └─────────────────┘            └─────────────────┘            └─────────────────┘
 ```
 
 **Key Points:**
-- Multiple captures: Each app gets its own session file (different session_id)
+- Multiple captures: Each app gets its own session directory (unique session_id with hash)
 - Multiple readers: Any Claude Code can list/read any session
 - Atomic writes: Write to temp file + rename ensures readers never see partial data
-- Session isolation: Each session file is independent - no conflicts
+- Session isolation: Each session directory is independent - no conflicts
+- Flexible querying: `@latest`, session ID, or direct path all work
 
 ## Implementation
 
@@ -185,4 +212,10 @@ On capture error:
 
 ## Status
 
-**Complete** - Implemented with 20 unit tests passing
+**Complete** - Implemented with 67+ tests passing
+
+### Recent Updates (2024-01)
+- Unified session directory format: session directory IS the bundle
+- Session ID format: `session_YYYY_MM_DD_hh_mm_ss_<short_hash>`
+- Query supports `@latest`, session ID, or direct path
+- No `--output` flag needed for capture (auto-registered in `~/.ada/sessions/`)

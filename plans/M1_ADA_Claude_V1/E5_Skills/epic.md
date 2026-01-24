@@ -6,8 +6,8 @@ Claude Code skills - user-facing commands
 
 ## Depends On
 
-- E2_Session_Management (writes/reads `active_session.json`)
-- E3_Analysis_Pipeline (orchestrates analysis stages)
+- E3_Session_Management (uses `ada session` commands and `@latest` path resolution)
+- E4_Analysis_Pipeline (orchestrates analysis stages)
 
 ## Interface Contract
 
@@ -27,24 +27,29 @@ Deployed to: `~/.claude/commands/`
 ```markdown
 # Detects project type, launches with capture
 1. Find app binary (xcodebuild, cargo, etc.)
-2. Launch: nohup ada capture start <binary> --output ~/.ada/sessions/<id> &
-3. Write ~/.ada/active_session.json
-4. Return: "App running with capture. Describe issues when ready."
+2. Launch: nohup ada capture start <binary> &
+   (Session auto-registered in ~/.ada/sessions/<session_id>/)
+3. Return: "App running with capture. Describe issues when ready."
 ```
+
+**Note:** No `--output` flag needed - capture automatically registers session in `~/.ada/sessions/`.
 
 ### /analyze Skill
 
 ```markdown
-# Runs E3 pipeline, presents diagnosis
-1. Read ~/.ada/active_session.json
-2. Run Whisper on voice.wav
+# Runs E4 pipeline, presents diagnosis
+1. Get latest session: ada session latest
+   Or use @latest directly in queries: ada query @latest events
+2. Run Whisper on voice.wav from session directory
 3. Extract time points from transcript (LLM)
 4. For each time point:
    - Extract screenshot (ffmpeg)
-   - Query events in window (ada query)
+   - Query events in window: ada query @latest events --format line-complete
 5. Synthesize with Task tool (multimodal)
 6. Present diagnosis
 ```
+
+**Note:** No `active_session.json` needed - use `@latest` in queries or `ada session latest` for the path.
 
 ### /build Skill
 

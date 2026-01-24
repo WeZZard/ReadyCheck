@@ -15,7 +15,8 @@ Validate the hypothesis: "Multimodal capture (voice + screen + trace) improves A
 │           ↓                                                                 │
 │  /run skill detects project type                                            │
 │           ↓                                                                 │
-│  ada capture start <binary> --output ~/.ada/sessions/<id>                   │
+│  ada capture start <binary>                                                 │
+│  (auto-registers in ~/.ada/sessions/<session_id>/)                          │
 │           ↓                                                                 │
 │  ┌─────────────────────────────────────────┐                               │
 │  │ ADA captures simultaneously:            │                               │
@@ -28,7 +29,7 @@ Validate the hypothesis: "Multimodal capture (voice + screen + trace) improves A
 │           ↓                                                                 │
 │  User stops capture (Ctrl+C)                                                │
 │           ↓                                                                 │
-│  ADA writes session.adabundle/ with manifest.json                           │
+│  Session dir IS the bundle: ~/.ada/sessions/<session_id>/                   │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
                                     ↓
@@ -38,14 +39,14 @@ Validate the hypothesis: "Multimodal capture (voice + screen + trace) improves A
 │                                                                             │
 │  User: "why did it freeze?"                                                 │
 │           ↓                                                                 │
-│  /analyze skill reads session path                                          │
+│  /analyze skill uses @latest or ada session latest                          │
 │           ↓                                                                 │
 │  whisper voice.wav → timestamped transcript                                 │
 │  "at 30 seconds I tapped login and it froze"                               │
 │           ↓                                                                 │
 │  Claude extracts: time=30s, observation="tapped login, froze"              │
 │           ↓                                                                 │
-│  ada query <session> events --format line-complete                          │
+│  ada query @latest events --format line-complete                            │
 │  → Events around T=30s (all threads)                                        │
 │           ↓                                                                 │
 │  ffmpeg -ss 30 -i screen.mp4 -frames:v 1 screenshot.png                    │
@@ -66,16 +67,19 @@ Validate the hypothesis: "Multimodal capture (voice + screen + trace) improves A
 | Command | Purpose | Output |
 |---------|---------|--------|
 | `ada capture start <binary>` | Start multimodal capture | Runs until Ctrl+C |
-| (implicit) | Write session bundle | `session.adabundle/` directory |
-| (implicit) | Write bundle manifest | `manifest.json` with file paths |
+| (implicit) | Register session | `~/.ada/sessions/<session_id>/` directory |
+| (implicit) | Write session metadata | `session.json` with session state |
 
 ### Phase 2: Analysis
 
 | Command | Purpose | Output |
 |---------|---------|--------|
-| `ada query <session> summary` | Session overview | Thread count, event count, duration |
-| `ada query <session> events` | Get trace events | Timestamped function calls |
-| `ada query <session> events --format line-complete` | LLM-friendly format | `cycle=... \| T=... \| thread:... \| func()` |
+| `ada session latest` | Get latest session path | `~/.ada/sessions/<session_id>/` |
+| `ada query @latest summary` | Session overview | Thread count, event count, duration |
+| `ada query @latest events` | Get trace events | Timestamped function calls |
+| `ada query @latest events --format line-complete` | LLM-friendly format | `cycle=... \| T=... \| thread:... \| func()` |
+
+**Note:** `@latest` resolves to the most recent session. You can also use a session ID or direct path.
 
 ### External Tools (not ADA)
 
