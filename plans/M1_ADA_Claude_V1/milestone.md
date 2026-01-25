@@ -97,8 +97,10 @@ Validate the hypothesis: "Multimodal capture (voice + screen + trace) improves A
 | E3_Session_Management | (Scope TBD after E1) |
 | E4_Analysis_Pipeline | (Scope TBD after E1) |
 | E5_Skills | (Scope TBD after E1) |
+| E6_Skill_Design | Detailed skill workflow design (/run, /analyze) |
+| E7_Skill_Distribution | Marketplace and plugin distribution system |
 
-**Note**: E2-E5 scopes will be refined based on E1 findings. We only build what's actually needed.
+**Note**: E2-E5 scopes will be refined based on E1 findings. E6-E7 extend the skills infrastructure.
 
 ## Execution Order
 
