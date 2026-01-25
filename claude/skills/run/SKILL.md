@@ -34,23 +34,12 @@ swift build -c release
 
 ### Step 3: Start Capture
 
-```bash
-# Basic capture
-ada capture start <binary_path>
-
-# With voice narration
-ada capture start <binary_path> --voice
-
-# With screen recording
-ada capture start <binary_path> --screen
-
-# With both
-ada capture start <binary_path> --voice --screen
-```
+Command: ada capture start <binary_path>
 
 ### Step 4: Provide Feedback
 
 Report to user:
+
 - Session directory path
 - Capture status
 - How to stop: `ada capture stop`
