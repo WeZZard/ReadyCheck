@@ -2,92 +2,113 @@
 
 ## Layer
 
-Claude Code skills - user-facing commands
+Claude Code skills - user-facing commands and skill definitions
 
 ## Depends On
 
 - E3_Session_Management (uses `ada session` commands and `@latest` path resolution)
 - E4_Analysis_Pipeline (orchestrates analysis stages)
 
+## Architecture
+
+### Skill/Command Separation
+
+ADA uses a two-tier approach:
+
+1. **Skills** (`claude/skills/<name>/SKILL.md`) - Full workflow definitions
+2. **Commands** (`claude/commands/<name>.md`) - Thin redirects to skills
+
+This separation allows:
+- Skills to be reusable across different invocation methods
+- Commands to be simple entry points
+- Future plugin distribution via `plugin.json` (see E6)
+
+### Directory Structure
+
+```
+claude/
+├── commands/
+│   ├── run.md               # Thin redirect → ada:run skill
+│   └── analyze.md           # Thin redirect → ada:analyze skill
+└── skills/
+    ├── run/
+    │   └── SKILL.md         # Full run workflow
+    └── analyze/
+        └── SKILL.md         # Full analyze workflow
+```
+
+### SKILL.md Format
+
+Skills use YAML frontmatter for metadata:
+
+```yaml
+---
+name: skill-name
+description: Brief description of what the skill does
+tools: Read, Glob, Grep, Bash, Edit   # Optional: restrict available tools
+---
+
+# Title
+
+Workflow content...
+```
+
 ## Interface Contract
 
-### Skill Files
+### Skills
 
-Location in repo: `claude/commands/`
-Deployed to: `~/.claude/commands/`
+| Skill | Description | ADA Usage |
+|-------|-------------|-----------|
+| `ada:run` | Launch app with tracing | `ada capture start` |
+| `ada:analyze` | Analyze capture session | `ada query events` + Whisper + ffmpeg |
 
-| Skill | Trigger | ADA Usage |
-|-------|---------|-----------|
-| `/run` | "run my app", "start the app" | `ada capture start` |
-| `/analyze` | "why did it freeze?", "analyze" | `ada query events` + Whisper + ffmpeg |
-| `/build` | "build my app" | None (build system only) |
+### ada:run Skill
 
-### /run Skill
+1. Detects project type (Xcode, Cargo, Swift Package, generic binary)
+2. Builds if needed
+3. Launches: `ada capture start <binary>` with optional `--voice`/`--screen`
+4. Reports session path
 
-```markdown
-# Detects project type, launches with capture
-1. Find app binary (xcodebuild, cargo, etc.)
-2. Launch: nohup ada capture start <binary> &
-   (Session auto-registered in ~/.ada/sessions/<session_id>/)
-3. Return: "App running with capture. Describe issues when ready."
-```
+### ada:analyze Skill
 
-**Note:** No `--output` flag needed - capture automatically registers session in `~/.ada/sessions/`.
-
-### /analyze Skill
-
-```markdown
-# Runs E4 pipeline, presents diagnosis
-1. Get latest session: ada session latest
-   Or use @latest directly in queries: ada query @latest events
-2. Run Whisper on voice.wav from session directory
-3. Extract time points from transcript (LLM)
+1. Gets session info via `ada query @latest time-info`
+2. Runs Whisper on voice recording (if available)
+3. Extracts time points from transcript
 4. For each time point:
-   - Extract screenshot (ffmpeg)
-   - Query events in window: ada query @latest events --format line-complete
-5. Synthesize with Task tool (multimodal)
-6. Present diagnosis
-```
-
-**Note:** No `active_session.json` needed - use `@latest` in queries or `ada session latest` for the path.
-
-### /build Skill
-
-```markdown
-# Standard build, no ADA
-1. Detect build system
-2. Run build command
-3. Parse errors, suggest fixes
-```
+   - Extracts screenshot (if available)
+   - Queries events in window
+5. Synthesizes multimodal analysis
+6. Presents diagnosis
 
 ## Deployment
 
-`utils/deploy.sh`:
+Skills are deployed via the plugin system (see E6 for plugin.json):
+
 ```bash
-mkdir -p ~/.claude/commands
-cp claude/commands/*.md ~/.claude/commands/
+./utils/deploy.sh
 ```
 
 ## Deliverables
 
-1. `claude/commands/run.md`
-2. `claude/commands/analyze.md`
-3. `claude/commands/build.md`
-4. `utils/deploy.sh`
+1. `claude/skills/run/SKILL.md` ✅
+2. `claude/skills/analyze/SKILL.md` ✅
+3. `claude/commands/run.md` (thin redirect) ✅
+4. `claude/commands/analyze.md` (thin redirect) ✅
 
 ## Testing
 
-Headless mode validation:
+Manual validation:
 ```bash
-claude --print -p "/run" --allowedTools Bash,Read,Write
-claude --print -p "/analyze" --allowedTools Bash,Read,Task
+# Verify SKILL.md format
+head -10 claude/skills/run/SKILL.md
+head -10 claude/skills/analyze/SKILL.md
 ```
 
 ## Open Questions
 
 - [ ] Natural language triggers - how to detect "it crashed" without explicit /analyze?
-- [ ] Project type detection - heuristics for iOS vs macOS vs Rust?
+- [ ] Project type detection heuristics - prioritization when multiple build systems exist?
 
 ## Status
 
-Not started
+Complete - skill files created, commands redirect to skills

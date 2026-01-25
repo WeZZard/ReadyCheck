@@ -2,162 +2,96 @@
 
 ## Layer
 
-Claude Code skills - marketplace and plugin distribution system
+Claude Code skills - plugin distribution and marketplace integration
 
 ## Depends On
 
-- E5_Skills (infrastructure)
-- E6_Skill_Design (detailed skill workflows)
+- E5_Skills (skill files and directory structure)
+- E6_Skill_Design (plugin.json and marketplace.json)
 
 ## Scope
 
 ### Concept
 
-A marketplace/registry system where:
-1. ADA skills are packaged as installable plugins
-2. Users can discover, install, and update skills
-3. Skill authors can publish and version their skills
+Distribution of ADA skills as a Claude Code plugin, leveraging the built-in plugin system rather than a custom `ada skill` CLI.
 
-### Plugin Format
+### Distribution Model
 
-**Skill Manifest (`skill.json`):**
-```json
-{
-  "name": "my-skill",
-  "version": "1.0.0",
-  "description": "Brief description of the skill",
-  "author": "author-name",
-  "license": "MIT",
-  "ada_version": ">=0.1.0",
-  "dependencies": [],
-  "files": ["skill.md", "templates/"],
-  "keywords": ["category", "tag"]
-}
+**Primary Distribution: Claude Code Plugin System**
+
+Instead of building custom `ada skill install/update/remove` commands, ADA skills are distributed through Claude Code's native plugin system:
+
+1. Users install via Claude Code's plugin mechanism
+2. Skills become available through the Skill tool
+3. Updates handled by Claude Code's plugin update system
+
+**Plugin Location:**
 ```
-
-**Package Structure:**
-```
-my-skill/
-├── skill.json       # Manifest with metadata
-├── skill.md         # Main skill file
-├── README.md        # Documentation (optional)
-└── templates/       # Supporting files (optional)
-```
-
-**Versioning:**
-- Semantic versioning (semver): MAJOR.MINOR.PATCH
-- Compatibility declarations for ADA versions
-
-### Registry/Marketplace
-
-**Discovery Mechanism:**
-- Searchable index by name, description, keywords
-- Category browsing (debugging, testing, deployment, etc.)
-- Popularity/rating metrics
-
-**Registry Options:**
-1. **GitHub-based**: Skills as repos with releases
-   - Pro: No infrastructure needed, familiar workflow
-   - Con: No central search, fragmented discovery
-
-2. **npm-style registry**: Dedicated service
-   - Pro: Unified search, metadata API
-   - Con: Infrastructure to maintain
-
-3. **Git index file**: Central index pointing to git repos
-   - Pro: Simple, decentralized hosting
-   - Con: Manual index maintenance
-
-**Recommended Approach:**
-Start with GitHub-based distribution using a central index file (`skill-registry.json`) that references GitHub repos.
-
-### CLI Commands
-
-**List installed skills:**
-```bash
-ada skill list
-ada skill list --available    # Show installable skills
-```
-
-**Install from marketplace:**
-```bash
-ada skill install <name>
-ada skill install <name>@<version>
-ada skill install <github-url>
-```
-
-**Update skills:**
-```bash
-ada skill update              # Update all skills
-ada skill update <name>       # Update specific skill
-```
-
-**Remove skills:**
-```bash
-ada skill remove <name>
-```
-
-**Publish to marketplace:**
-```bash
-ada skill publish             # Publish from current directory
-ada skill publish --dry-run   # Validate without publishing
-```
-
-**Skill information:**
-```bash
-ada skill info <name>         # Show skill details
-ada skill search <query>      # Search marketplace
+~/.claude/plugins/cache/ada/<version>/
+├── plugin.json
+├── marketplace.json
+└── skills/
+    ├── run/SKILL.md
+    └── analyze/SKILL.md
 ```
 
 ### Installation Flow
 
-1. Resolve skill name to registry entry
-2. Download skill package (git clone or tarball)
-3. Validate manifest and compatibility
-4. Install to `~/.ada/skills/<name>/`
-5. Register in local skill index
+1. User adds ADA plugin to their Claude Code configuration
+2. Claude Code downloads plugin from registry/GitHub
+3. Skills become available as `ada:run`, `ada:analyze`
+4. Commands in `~/.claude/commands/` redirect to skills
 
 ### Publishing Flow
 
-1. Validate `skill.json` manifest
-2. Check required files exist
-3. Run skill linter/validator
-4. Tag git release (if GitHub-based)
-5. Update central registry index (PR or API)
+1. Bump version in `plugin.json`
+2. Create GitHub release with tag
+3. Update any registry entries (if using Claude Code marketplace)
+4. Users receive updates through Claude Code's update mechanism
 
-### Local Skill Directory Structure
+### Local Development
 
-```
-~/.ada/
-├── skills/
-│   ├── my-skill/           # Installed skill
-│   │   ├── skill.json
-│   │   └── skill.md
-│   └── another-skill/
-├── skill-index.json        # Local registry cache
-└── config.json             # User preferences
+For local development and testing:
+
+```bash
+# Deploy locally without publishing
+./utils/deploy.sh --local
+
+# This copies skills to ~/.claude/plugins/local/ada/
 ```
 
 ### Security Considerations
 
 - Skills are markdown/templates, not executable code
-- Manifest validation before installation
-- Optional signature verification for trusted publishers
-- User consent before installation
+- Claude Code validates plugin manifest
+- User consent through Claude Code's permission system
 
 ## Deliverables
 
-1. Plugin format specification
-2. `ada skill` CLI subcommands
-3. Registry index format
-4. Installation/publishing workflows
-5. Documentation for skill authors
+1. Distribution documentation (README section)
+2. Publishing workflow (GitHub Actions or manual)
+3. Local development deployment script updates
+4. User installation instructions
+
+## Relationship to Original E7 Plan
+
+The original plan proposed custom `ada skill` CLI commands:
+- `ada skill list`
+- `ada skill install`
+- `ada skill update`
+- `ada skill remove`
+- `ada skill publish`
+
+**Decision:** These are **not needed** because Claude Code's plugin system provides equivalent functionality. This simplifies ADA by:
+- Removing need for skill registry infrastructure
+- Leveraging proven plugin distribution mechanism
+- Reducing CLI surface area
 
 ## Testing
 
-- Unit tests for manifest parsing
-- Integration tests for install/remove/update
-- Mock registry for CI testing
+- Local deployment validation
+- GitHub release workflow test
+- User installation path verification
 
 ## Status
 
