@@ -9,6 +9,15 @@ description: "Launch application with ADA tracing - captures execution traces, v
 
 Launch an application with ADA tracing enabled, capturing execution traces, voice narration, and screen recording for later analysis. Screen and voice recording are enabled by default and can be disabled with `--no-screen` and `--no-voice` flags.
 
+## Environment Setup
+
+Before running any ada command, set the environment:
+
+```bash
+export ADA_AGENT_RPATH_SEARCH_PATHS="${ADA_ROOT}/lib"
+export PATH="${ADA_ROOT}/bin:$PATH"
+```
+
 ## Workflow
 
 ### Step 1: Project Detection
@@ -63,3 +72,4 @@ Report to user:
 - **Binary not found**: Guide user to specify path manually
 - **Permission denied**: Check code signing (macOS)
 - **ADA not installed**: Show installation instructions
+- **Agent library not found**: Ensure `ADA_AGENT_RPATH_SEARCH_PATHS` is set correctly

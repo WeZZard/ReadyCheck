@@ -9,6 +9,15 @@ description: "Analyze ADA capture session - correlates voice, screen, and trace 
 
 Analyze a captured ADA session using time-correlated multimodal data: execution traces, voice transcripts, and screenshots.
 
+## Environment Setup
+
+Before running any ada command, set the environment:
+
+```bash
+export ADA_AGENT_RPATH_SEARCH_PATHS="${ADA_ROOT}/lib"
+export PATH="${ADA_ROOT}/bin:$PATH"
+```
+
 ## Workflow
 
 ### Step 1: Session Selection
@@ -78,3 +87,4 @@ Deliver structured analysis:
 - **No voice recording**: Session captured with `--no-voice`; analyze using events and screenshots
 - **No screen recording**: Session captured with `--no-screen`; analyze using events and transcript
 - **Empty trace**: Check if capture was running during issue
+- **ADA not found**: Ensure `PATH` includes `${ADA_ROOT}/bin`
