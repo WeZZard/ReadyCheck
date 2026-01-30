@@ -834,24 +834,25 @@ int FridaController::resume() {
         g_debug("[Controller] Hooks ready confirmed; proceeding to resume\n");
     }
 
+    // Start ATF session BEFORE resuming process to avoid race condition
+    // where fast-running processes complete before session is ready
+    if (!start_atf_session()) {
+        g_printerr("[Controller] Warning: Failed to start ATF session (tracing continues without file output)\n");
+        // Continue anyway - tracing still works via ring buffers
+    }
+
     GError* error = nullptr;
     frida_device_resume_sync(device_, pid_, nullptr, &error);
-    
+
     if (error) {
         g_error_free(error);
         state_ = PROCESS_STATE_FAILED;
         control_block_->process_state = PROCESS_STATE_FAILED;
         return -1;
     }
-    
+
     state_ = PROCESS_STATE_RUNNING;
     control_block_->process_state = PROCESS_STATE_RUNNING;
-
-    // Start ATF session when process begins running
-    if (!start_atf_session()) {
-        g_printerr("[Controller] Warning: Failed to start ATF session (tracing continues without file output)\n");
-        // Continue anyway - tracing still works via ring buffers
-    }
 
     return 0;
 }

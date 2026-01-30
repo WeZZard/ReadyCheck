@@ -304,10 +304,10 @@ fn start_capture(
     map_tracer_result(controller.attach(target_pid))?;
     map_tracer_result(controller.install_hooks())?;
 
-    if voice {
-        map_tracer_result(controller.arm_trigger(pre_roll_ms, post_roll_ms))?;
-        map_tracer_result(controller.fire_trigger())?;
-    }
+    // Always arm and fire trigger to start recording events
+    // (voice mode only affects pre/post roll timing, but tracing needs the trigger)
+    map_tracer_result(controller.arm_trigger(pre_roll_ms, post_roll_ms))?;
+    map_tracer_result(controller.fire_trigger())?;
 
     map_tracer_result(controller.set_detail_enabled(voice))?;
     map_tracer_result(controller.resume())?;

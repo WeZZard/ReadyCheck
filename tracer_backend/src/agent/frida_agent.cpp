@@ -1167,21 +1167,14 @@ uint32_t hash_string(const char* str) {
 }
 
 uint64_t platform_get_timestamp() {
-#ifdef __APPLE__
-    // mach_absolute_time() returns ticks, not nanoseconds
-    // Convert to nanoseconds using mach_timebase_info
-    static mach_timebase_info_data_t timebase_info = {0, 0};
-    if (timebase_info.denom == 0) {
-        mach_timebase_info(&timebase_info);
-    }
-    uint64_t mach_time = mach_absolute_time();
-    // Convert to nanoseconds: mach_time * numer / denom
-    return mach_time * timebase_info.numer / timebase_info.denom;
-#else
+    // Use clock_gettime(CLOCK_MONOTONIC) for consistency with GLib's g_get_monotonic_time()
+    // which the controller uses. On macOS 10.12+, CLOCK_MONOTONIC uses mach_continuous_time()
+    // internally, ensuring both controller and agent use the same time base.
+    // Previously used mach_absolute_time() which doesn't count sleep time, causing
+    // timestamp mismatches when comparing with the controller's heartbeat.
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
-    return static_cast<uint64_t>(ts.tv_sec) * 1000000000ULL + ts.tv_nsec;
-#endif
+    return static_cast<uint64_t>(ts.tv_sec) * 1000000000ULL + static_cast<uint64_t>(ts.tv_nsec);
 }
 
 static void segfault_handler(int sig) {
