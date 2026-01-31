@@ -762,6 +762,19 @@ fn main() {
             "out/bin/test_swift_detection",
             "test/test_swift_detection",
         ),
+        // Debug dylib detection unit tests
+        (
+            "build/test_debug_dylib_detection",
+            "test/test_debug_dylib_detection",
+        ),
+        (
+            "build/tests/unit/agent/test_debug_dylib_detection",
+            "test/test_debug_dylib_detection",
+        ),
+        (
+            "out/bin/test_debug_dylib_detection",
+            "test/test_debug_dylib_detection",
+        ),
         // Swift hooks integration tests
         (
             "build/test_swift_hooks",
@@ -774,6 +787,11 @@ fn main() {
         (
             "out/bin/test_swift_hooks",
             "test/test_swift_hooks",
+        ),
+        // Debug dylib detection integration tests
+        (
+            "build/tests/integration/agent/test_debug_dylib_integration",
+            "test/test_debug_dylib_integration",
         ),
     ];
 

@@ -153,12 +153,40 @@ if(FRIDA_CORE_TEST)
         )
     endif()
 
+    # Debug dylib detection integration test
+    add_executable(test_debug_dylib_integration
+        test_debug_dylib_detection.cpp
+    )
+    target_include_directories(test_debug_dylib_integration
+        PRIVATE
+            ${CMAKE_SOURCE_DIR}/include
+            ${CMAKE_SOURCE_DIR}/../third_parties/frida-core
+            ${CMAKE_SOURCE_DIR}/../third_parties/frida-gum
+            ${CMAKE_BINARY_DIR}  # For ada_paths.h
+    )
+    target_link_libraries(test_debug_dylib_integration
+        PRIVATE
+            test_main
+            GTest::gtest
+            GTest::gmock
+            agent_utils
+            tracer_utils
+            Threads::Threads
+    )
+    gtest_discover_tests(test_debug_dylib_integration
+        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+        DISCOVERY_MODE PRE_TEST
+        DISCOVERY_TIMEOUT 60
+        PROPERTIES LABELS "integration"
+    )
+
     # Install targets
     install(TARGETS
         test_agent_loader
         test_baseline_hooks
         test_agent_registry_modes
         test_swift_hooks
+        test_debug_dylib_integration
         RUNTIME DESTINATION bin
     )
 endif()

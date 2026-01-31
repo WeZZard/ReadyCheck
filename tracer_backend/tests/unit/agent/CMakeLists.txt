@@ -291,3 +291,31 @@ install(TARGETS
     test_swift_detection
     RUNTIME DESTINATION bin
 )
+
+# Debug dylib detection unit tests
+add_executable(test_debug_dylib_detection
+    test_debug_dylib_detection.cpp
+)
+target_include_directories(test_debug_dylib_detection
+    PRIVATE
+        ${CMAKE_SOURCE_DIR}/include
+        ${CMAKE_BINARY_DIR}
+)
+target_link_libraries(test_debug_dylib_detection
+    PRIVATE
+        test_main
+        GTest::gtest
+        GTest::gmock
+        agent_utils
+        tracer_utils
+)
+gtest_discover_tests(test_debug_dylib_detection
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+    DISCOVERY_MODE PRE_TEST
+    DISCOVERY_TIMEOUT 60
+    PROPERTIES LABELS "unit"
+)
+install(TARGETS
+    test_debug_dylib_detection
+    RUNTIME DESTINATION bin
+)

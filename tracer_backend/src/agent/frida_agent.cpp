@@ -46,6 +46,7 @@ extern "C" {
 #include <tracer_backend/agent/dso_management.h>
 #include <tracer_backend/agent/module_uuid.h>
 #include <tracer_backend/agent/swift_detection.h>
+#include <tracer_backend/agent/debug_dylib_detection.h>
 
 // #define ADA_MINIMAL_HOOKS 1  // Disabled to enable full event capture
 
@@ -759,8 +760,43 @@ void AgentContext::install_hooks() {
     LOG_HOOK_INSTALL("[Agent] Getting main module...\n");
     GumModule* main_mod = gum_process_get_main_module();
     const char* main_path = main_mod ? gum_module_get_path(main_mod) : nullptr;
+
+    // Effective module for tracing (may be redirected on Apple platforms for debug dylib stubs)
+    GumModule* effective_mod = main_mod;
+    const char* effective_path = main_path;
+
+#ifdef __APPLE__
+    // Debug dylib detection: check if main binary is a stub that loads real code from .debug.dylib
+    // This is an Xcode feature (ENABLE_DEBUG_DYLIB=YES) for Debug configurations.
+    if (main_mod && main_path) {
+        const GumMemoryRange* range = gum_module_get_range(main_mod);
+        DebugDylibInfo debug_info;
+
+        if (range && ada_detect_debug_dylib_stub(range->base_address, main_path, &debug_info)) {
+            if (debug_info.is_debug_stub && ada_find_loaded_debug_dylib(&debug_info)) {
+                LOG_HOOK_INSTALL("[Agent] Debug stub detected, tracing %s instead\n",
+                                 debug_info.debug_dylib_path);
+
+                GumModuleMap* module_map = gum_module_map_new();
+                if (module_map) {
+                    GumModule* debug_mod = gum_module_map_find(module_map, debug_info.debug_dylib_base);
+                    if (debug_mod) {
+                        effective_mod = debug_mod;
+                        effective_path = gum_module_get_path(effective_mod);
+                        if (ada::internal::g_agent_verbose) {
+                            LOG_HOOK_INSTALL("[Agent] Redirected from stub to debug dylib: %s (base=0x%llx)\n",
+                                             effective_path, (unsigned long long)debug_info.debug_dylib_base);
+                        }
+                    }
+                    g_object_unref(module_map);
+                }
+            }
+        }
+    }
+#endif
+
     std::vector<SymbolEntry> main_symbol_entries;
-    if (main_mod) {
+    if (effective_mod) {
         // Check if ADA_HOOK_SWIFT=0 (escape hatch to force exports-only mode)
         // Default behavior: enumerate all symbols (Swift functions included)
         // Stub addresses are filtered at hook installation time
@@ -769,7 +805,7 @@ void AgentContext::install_hooks() {
 
         if (force_exports_only) {
             std::vector<ExportEntry> main_exports;
-            gum_module_enumerate_exports(main_mod, collect_exports_cb, &main_exports);
+            gum_module_enumerate_exports(effective_mod, collect_exports_cb, &main_exports);
             for (const auto& entry : main_exports) {
                 // ExportEntry doesn't have address, use 0 (will fallback to resolve_export_address)
                 main_symbol_entries.push_back(SymbolEntry{entry.name, 0});
@@ -779,7 +815,7 @@ void AgentContext::install_hooks() {
                                  main_symbol_entries.size());
             }
         } else {
-            gum_module_enumerate_symbols(main_mod, collect_symbols_cb, &main_symbol_entries);
+            gum_module_enumerate_symbols(effective_mod, collect_symbols_cb, &main_symbol_entries);
             if (ada::internal::g_agent_verbose) {
                 LOG_HOOK_INSTALL("[Agent] Enumerating all symbols (Swift included): %zu symbols\n",
                                  main_symbol_entries.size());
@@ -787,18 +823,18 @@ void AgentContext::install_hooks() {
         }
 
         // Capture module metadata for symbol resolution (Phase 1 - symbol table persistence)
-        const GumMemoryRange* range = gum_module_get_range(main_mod);
-        if (range && main_path) {
+        const GumMemoryRange* range = gum_module_get_range(effective_mod);
+        if (range && effective_path) {
             uint8_t uuid[16] = {0};
             ada::agent::extract_module_uuid(static_cast<uintptr_t>(range->base_address), uuid);
-            hook_registry_.set_module_metadata(main_path, range->base_address, range->size, uuid);
+            hook_registry_.set_module_metadata(effective_path, range->base_address, range->size, uuid);
             LOG_HOOK_INSTALL("[Agent] Captured main module metadata: base=0x%llx, size=%zu\n",
                     (unsigned long long)range->base_address, (size_t)range->size);
         }
     }
     std::vector<SectionRange> main_stub_ranges;
-    if (main_mod) {
-        gum_module_enumerate_sections(main_mod, collect_stub_sections_cb, &main_stub_ranges);
+    if (effective_mod) {
+        gum_module_enumerate_sections(effective_mod, collect_stub_sections_cb, &main_stub_ranges);
         if (ada::internal::g_agent_verbose && !main_stub_ranges.empty()) {
             LOG_HOOK_INSTALL("[Agent] Collected %zu stub ranges for main module\n",
                              main_stub_ranges.size());
@@ -821,7 +857,7 @@ void AgentContext::install_hooks() {
     cap_symbol_names(main_symbol_names, symbol_limit);
 
     // Plan main hooks
-    auto main_plan = ada::agent::plan_module_hooks(main_path ? main_path : "<main>", main_symbol_names, xs, hook_registry_);
+    auto main_plan = ada::agent::plan_module_hooks(effective_path ? effective_path : "<main>", main_symbol_names, xs, hook_registry_);
 
     // Build precise address lookup for main module
     // First use addresses from enumeration (works for local/internal symbols)
@@ -837,7 +873,7 @@ void AgentContext::install_hooks() {
             a = enum_it->second;
         } else {
             // Fallback: export/symbol lookup (for exports-only mode)
-            a = resolve_export_address(main_mod, entry.symbol);
+            a = resolve_export_address(effective_mod, entry.symbol);
         }
 
         if (ada::internal::g_agent_verbose) {
@@ -912,8 +948,8 @@ void AgentContext::install_hooks() {
             
             const char* path = gum_module_get_path(mod);
             
-            if (mod == main_mod) {
-                // Main module already processed above, skip to avoid duplicate registration
+            if (mod == main_mod || mod == effective_mod) {
+                // Main module (or debug dylib if redirected) already processed above
                 continue;
             }
 
