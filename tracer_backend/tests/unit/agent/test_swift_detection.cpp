@@ -166,3 +166,41 @@ TEST(skip_swift__env_empty__then_returns_true, unit) {
 #endif
     unsetenv("ADA_HOOK_SWIFT");
 }
+
+// =============================================================================
+// Test: ada_is_swift_symbolic_metadata
+// =============================================================================
+
+TEST(symbolic_metadata__underscore_symbolic_prefix__then_returns_true, unit) {
+    // Real example from Swift debug builds
+    EXPECT_TRUE(ada_is_swift_symbolic_metadata("_symbolic ___SSC9CGContextC"));
+    EXPECT_TRUE(ada_is_swift_symbolic_metadata("_symbolic"));
+    EXPECT_TRUE(ada_is_swift_symbolic_metadata("_symbolic___"));
+}
+
+TEST(symbolic_metadata__symbolic_prefix__then_returns_true, unit) {
+    // Without leading underscore (also valid)
+    EXPECT_TRUE(ada_is_swift_symbolic_metadata("symbolic ___SSC9CGContextC"));
+    EXPECT_TRUE(ada_is_swift_symbolic_metadata("symbolic"));
+}
+
+TEST(symbolic_metadata__regular_swift_symbol__then_returns_false, unit) {
+    // Regular Swift symbols should NOT be flagged as symbolic metadata
+    EXPECT_FALSE(ada_is_swift_symbolic_metadata("$sSomeFunction"));
+    EXPECT_FALSE(ada_is_swift_symbolic_metadata("_$sSomeFunction"));
+    EXPECT_FALSE(ada_is_swift_symbolic_metadata("swift_allocObject"));
+}
+
+TEST(symbolic_metadata__regular_c_symbol__then_returns_false, unit) {
+    EXPECT_FALSE(ada_is_swift_symbolic_metadata("malloc"));
+    EXPECT_FALSE(ada_is_swift_symbolic_metadata("_main"));
+    EXPECT_FALSE(ada_is_swift_symbolic_metadata("objc_msgSend"));
+}
+
+TEST(symbolic_metadata__null__then_returns_false, unit) {
+    EXPECT_FALSE(ada_is_swift_symbolic_metadata(nullptr));
+}
+
+TEST(symbolic_metadata__empty__then_returns_false, unit) {
+    EXPECT_FALSE(ada_is_swift_symbolic_metadata(""));
+}

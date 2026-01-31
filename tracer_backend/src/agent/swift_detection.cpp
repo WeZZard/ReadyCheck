@@ -53,3 +53,12 @@ bool ada_should_skip_swift_symbols(void) {
     return false;
 #endif
 }
+
+bool ada_is_swift_symbolic_metadata(const char* name) {
+    if (name == nullptr || name[0] == '\0') return false;
+    // Swift symbolic metadata: "_symbolic ..." or "symbolic ..."
+    // These are reflection strings containing type information, not executable code
+    if (strncmp(name, "_symbolic", 9) == 0) return true;
+    if (strncmp(name, "symbolic", 8) == 0) return true;
+    return false;
+}

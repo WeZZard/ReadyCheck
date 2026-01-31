@@ -630,6 +630,24 @@ static gboolean collect_symbols_cb(const GumSymbolDetails* details, gpointer use
     if (details == nullptr || details->name == nullptr || details->name[0] == '\0') {
         return TRUE;
     }
+
+    // Filter by symbol type - only accept function/code symbols
+    // This filters out ~57K data symbols (S/s/d/b in nm output)
+#ifdef __APPLE__
+    // Mach-O: section filtering is primary, but skip metadata-type symbols
+    // GUM_SYMBOL_SECTION = opaque symbol from section (data, not function)
+    // GUM_SYMBOL_UNKNOWN = unclassified symbol (skip to be safe)
+    if (details->type == GUM_SYMBOL_SECTION ||
+        details->type == GUM_SYMBOL_UNKNOWN) {
+        return TRUE;
+    }
+#else
+    // ELF: symbol type is reliable, only accept functions
+    if (details->type != GUM_SYMBOL_FUNCTION) {
+        return TRUE;
+    }
+#endif
+
     if (!is_text_section(details->section)) {
         return TRUE;
     }
@@ -640,6 +658,11 @@ static gboolean collect_symbols_cb(const GumSymbolDetails* details, gpointer use
     if (strcmp(details->name, "_mh_execute_header") == 0) {
         return TRUE;
     }
+    // Skip Swift symbolic metadata (reflection strings, not code)
+    // These are ~8K+ symbols like "_symbolic ___SSC..." that contain type info
+    if (ada_is_swift_symbolic_metadata(details->name)) {
+        return TRUE;
+    }
     // Skip Swift witness table and metadata helpers (hooking corrupts Swift runtime)
     if (is_swift_runtime_helper(details->name)) {
         return TRUE;
@@ -648,15 +671,23 @@ static gboolean collect_symbols_cb(const GumSymbolDetails* details, gpointer use
     return TRUE;
 }
 
+// Default symbol limit as a safety net to prevent Frida transport timeouts
+// With symbol type filtering, debug builds should have ~100K code symbols max
+static const size_t DEFAULT_SYMBOL_LIMIT = 100000;
+
 static size_t main_symbol_limit() {
     const char* env = getenv("ADA_MAIN_SYMBOL_LIMIT");
     if (env == nullptr || env[0] == '\0') {
-        return 0;
+        return DEFAULT_SYMBOL_LIMIT;  // Default limit instead of unlimited
+    }
+    // Allow explicit disable with "0" or "unlimited"
+    if (strcmp(env, "0") == 0 || strcmp(env, "unlimited") == 0) {
+        return 0;  // No limit
     }
     char* end = nullptr;
     long value = strtol(env, &end, 10);
     if (end == env || value < 0) {
-        return 0;
+        return DEFAULT_SYMBOL_LIMIT;
     }
     return static_cast<size_t>(value);
 }
@@ -816,6 +847,20 @@ void AgentContext::install_hooks() {
             }
         } else {
             gum_module_enumerate_symbols(effective_mod, collect_symbols_cb, &main_symbol_entries);
+
+            // Fallback to exports if symbol enumeration returns empty.
+            // This happens with Xcode debug dylibs where gum_module_enumerate_symbols
+            // cannot read the symbol table, but exports are still accessible.
+            if (main_symbol_entries.empty()) {
+                std::vector<ExportEntry> fallback_exports;
+                gum_module_enumerate_exports(effective_mod, collect_exports_cb, &fallback_exports);
+                for (const auto& entry : fallback_exports) {
+                    main_symbol_entries.push_back(SymbolEntry{entry.name, 0});
+                }
+                LOG_HOOK_INSTALL("[Agent] Symbol enumeration empty, using exports fallback (%zu symbols)\n",
+                                 main_symbol_entries.size());
+            }
+
             if (ada::internal::g_agent_verbose) {
                 LOG_HOOK_INSTALL("[Agent] Enumerating all symbols (Swift included): %zu symbols\n",
                                  main_symbol_entries.size());
@@ -886,6 +931,7 @@ void AgentContext::install_hooks() {
     // Hook planned symbols in main module
     LOG_HOOK_INSTALL("[Agent] Main module has %zu planned hooks (symbol_limit=%zu)\n",
                      main_plan.size(), symbol_limit);
+
     for (const auto& entry : main_plan) {
         const auto it = main_addr.find(entry.symbol);
         num_hooks_attempted_++;
@@ -1021,6 +1067,15 @@ void AgentContext::install_hooks() {
 
     LOG_HOOK_INSTALL("[Agent] hooks installation complete: %u/%u hooks installed\n",
             num_hooks_successful_, num_hooks_attempted_);
+
+    // Report actual hook count (unconditional log for user visibility)
+    printf("[Agent] Installed %u hooks (attempted: %u)\n",
+           num_hooks_successful_, num_hooks_attempted_);
+
+    // Update control block with actual hook count (after all hooks installed)
+    if (control_block_) {
+        __atomic_store_n(&control_block_->actual_hook_count, num_hooks_successful_, __ATOMIC_RELEASE);
+    }
 
     // End transaction
     LOG_HOOK_INSTALL("[Agent] Ending transaction...\n");

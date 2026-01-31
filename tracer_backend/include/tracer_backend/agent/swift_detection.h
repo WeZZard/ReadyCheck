@@ -30,6 +30,11 @@ bool ada_is_swift_section_name(const char* name);
 // This is the legacy behavior - default skip Swift symbols
 bool ada_should_skip_swift_symbols(void);
 
+// Check if symbol is Swift symbolic metadata (reflection strings, not code)
+// These are data symbols containing type information, not executable code
+// Returns true for: _symbolic..., symbolic...
+bool ada_is_swift_symbolic_metadata(const char* name);
+
 #ifdef __cplusplus
 }
 #endif

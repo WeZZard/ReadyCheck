@@ -489,6 +489,7 @@ bool FridaController::initialize_shared_memory() {
     cb_set_registry_epoch(control_block_, 0);
     cb_set_registry_mode(control_block_, REGISTRY_MODE_GLOBAL_ONLY);
     cb_set_heartbeat_ns(control_block_, 0);
+    control_block_->actual_hook_count = 0;
 
     // Optional: allow disabling registry via env (verification / fallback)
     bool disable_registry = false;
@@ -908,8 +909,8 @@ int FridaController::install_hooks() {
     if (control_block_) {
         cb_set_hooks_ready(control_block_, 0);
     }
-    symbol_estimate_.store(0u, std::memory_order_relaxed);
-    has_symbol_estimate_.store(false, std::memory_order_relaxed);
+    unfiltered_symbol_count_.store(0u, std::memory_order_relaxed);
+    has_unfiltered_symbol_count_.store(false, std::memory_order_relaxed);
 
     // Find agent library
     char agent_path[1024];
@@ -1056,16 +1057,10 @@ int FridaController::install_hooks() {
         frida_unref(estimator);
     }
 
-    uint32_t symbol_count = symbol_estimate_.load(std::memory_order_relaxed);
+    uint32_t symbol_count = unfiltered_symbol_count_.load(std::memory_order_relaxed);
     last_startup_timeout_ms_ = startup_cfg_.compute_timeout_ms(symbol_count);
-    printf("[Controller] Startup timeout: symbols=%u, timeout_ms=%u, "
-           "startup_ms=%u, per_symbol_ms=%u, tolerance=%.3f, override_ms=%u\n",
-           symbol_count,
-           last_startup_timeout_ms_,
-           startup_cfg_.startup_ms,
-           startup_cfg_.per_symbol_ms,
-           startup_cfg_.tolerance_pct,
-           startup_cfg_.override_ms);
+    printf("[Controller] Startup timeout: unfiltered_symbols=%u, timeout_ms=%u\n",
+           symbol_count, last_startup_timeout_ms_);
 
     // --------------------------------------------------------------------
     // Phase 2: Create QuickJS loader script and load asynchronously
@@ -1488,8 +1483,8 @@ void FridaController::on_message(const gchar* message, GBytes* data) {
         }
         if (value <= UINT32_MAX) {
             uint32_t count = static_cast<uint32_t>(value);
-            symbol_estimate_.store(count, std::memory_order_relaxed);
-            has_symbol_estimate_.store(true, std::memory_order_relaxed);
+            unfiltered_symbol_count_.store(count, std::memory_order_relaxed);
+            has_unfiltered_symbol_count_.store(true, std::memory_order_relaxed);
             g_debug("[Controller] Parsed symbol estimate from loader: %u\n", count);
         }
     }

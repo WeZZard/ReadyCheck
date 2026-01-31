@@ -174,9 +174,11 @@ private:
     uint32_t last_startup_timeout_ms_{0};
 
     // Async script loading state (M1_E6_I1)
-    std::atomic<uint32_t> symbol_estimate_{0};
-    std::atomic<bool> has_symbol_estimate_{false};
     GCancellable* script_cancellable_{nullptr};
+
+    // Unfiltered symbol count from Phase 1 estimation (M1_E6_I1)
+    std::atomic<uint32_t> unfiltered_symbol_count_{0};
+    std::atomic<bool> has_unfiltered_symbol_count_{false};
 
     // Debugging
     void wait_for_debugger_if_needed() const;

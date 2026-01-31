@@ -150,6 +150,7 @@ typedef struct {
     uint32_t detail_lane_enabled;
     uint32_t capture_stack_snapshot;  // Enable 128-byte stack capture
     uint32_t hooks_ready;             // Agent sets to 1 when hooks are installed
+    uint32_t actual_hook_count;       // Agent sets to actual hookable symbol count
 
     // --- IPC fields for registry/agent coordination ---
     // All fields below must be accessed with atomic operations (release/acquire)
