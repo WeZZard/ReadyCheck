@@ -134,7 +134,7 @@ fi
 rm -rf "$OUTPUT_DIR"
 
 if [[ "$FORM" == "plugin" ]]; then
-    mkdir -p "$OUTPUT_DIR"/{.claude-plugin,bin,lib,skills/run,skills/analyze}
+    mkdir -p "$OUTPUT_DIR"/{.claude-plugin,bin,lib}
 
     # Get version from workspace root Cargo.toml
     VERSION=$(grep -A1 '^\[workspace\.package\]' "$PROJECT_ROOT/Cargo.toml" | grep '^version' | sed 's/.*"\(.*\)".*/\1/')
@@ -184,15 +184,20 @@ EOF
     # Copy library
     cp "$TARGET_DIR/tracer_backend/lib/libfrida_agent.dylib" "$OUTPUT_DIR/lib/"
 
-    # Copy and substitute skills
-    for skill in run analyze; do
-        if [[ -f "$PROJECT_ROOT/claude/skills/$skill/SKILL.md" ]]; then
-            sed -e "s|\${ADA_ROOT}|$ADA_ROOT|g" \
-                -e "s|\${ADA_LIB_DIR}|$ADA_LIB_DIR|g" \
-                -e "s|\${ADA_BIN_DIR}|$ADA_BIN_DIR|g" \
-                "$PROJECT_ROOT/claude/skills/$skill/SKILL.md" \
-                > "$OUTPUT_DIR/skills/$skill/SKILL.md"
-        fi
+    # Copy and substitute all .md files in claude directory
+    find "$PROJECT_ROOT/claude" -name "*.md" -type f | while read -r src_file; do
+        # Get relative path from claude directory
+        rel_path="${src_file#$PROJECT_ROOT/claude/}"
+        dst_file="$OUTPUT_DIR/claude/$rel_path"
+
+        # Create target directory if needed
+        mkdir -p "$(dirname "$dst_file")"
+
+        # Apply substitution
+        sed -e "s|\${ADA_ROOT}|$ADA_ROOT|g" \
+            -e "s|\${ADA_LIB_DIR}|$ADA_LIB_DIR|g" \
+            -e "s|\${ADA_BIN_DIR}|$ADA_BIN_DIR|g" \
+            "$src_file" > "$dst_file"
     done
 
     echo ""
@@ -205,17 +210,20 @@ EOF
     find "$OUTPUT_DIR" -type f | sort | sed 's|^|  |'
 
 else
-    # Standalone: just command files with hardcoded paths
+    # Standalone: all .md files with hardcoded paths
     mkdir -p "$OUTPUT_DIR"
 
-    for skill in run analyze; do
-        if [[ -f "$PROJECT_ROOT/claude/skills/$skill/SKILL.md" ]]; then
-            sed -e "s|\${ADA_ROOT}|$ADA_ROOT|g" \
-                -e "s|\${ADA_LIB_DIR}|$ADA_LIB_DIR|g" \
-                -e "s|\${ADA_BIN_DIR}|$ADA_BIN_DIR|g" \
-                "$PROJECT_ROOT/claude/skills/$skill/SKILL.md" \
-                > "$OUTPUT_DIR/$skill.md"
-        fi
+    # Copy and substitute all .md files in claude directory
+    find "$PROJECT_ROOT/claude" -name "*.md" -type f | while read -r src_file; do
+        rel_path="${src_file#$PROJECT_ROOT/claude/}"
+        dst_file="$OUTPUT_DIR/claude/$rel_path"
+
+        mkdir -p "$(dirname "$dst_file")"
+
+        sed -e "s|\${ADA_ROOT}|$ADA_ROOT|g" \
+            -e "s|\${ADA_LIB_DIR}|$ADA_LIB_DIR|g" \
+            -e "s|\${ADA_BIN_DIR}|$ADA_BIN_DIR|g" \
+            "$src_file" > "$dst_file"
     done
 
     echo ""
@@ -224,6 +232,6 @@ else
     echo "Profile: $BUILD_PROFILE"
     echo "ADA_ROOT: $ADA_ROOT"
     echo ""
-    echo "Files:"
-    ls -la "$OUTPUT_DIR"/*.md 2>/dev/null || echo "  (no files)"
+    echo "Contents:"
+    find "$OUTPUT_DIR" -type f | sort | sed 's|^|  |'
 fi
