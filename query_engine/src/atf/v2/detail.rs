@@ -41,7 +41,8 @@ impl DetailReader {
         let events_offset = header.events_offset as usize;
 
         // Validate events_offset
-        if events_offset >= mmap.len() {
+        // Note: events_offset == mmap.len() is valid (empty events section)
+        if events_offset > mmap.len() {
             return Err(AtfV2Error::InvalidOffset {
                 offset: events_offset,
                 file_size: mmap.len(),
@@ -749,5 +750,39 @@ mod tests {
         // This should return None because offset + 24 > mmap.len()
         let result = reader.get(1);
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_detail_reader__header_only_file__then_succeeds() {
+        // User Story: M1_E5_I2 - Handle header-only file (events_offset == file_size)
+        // Test Plan: Edge Case Tests - Empty detail files
+        let mut file = NamedTempFile::new().unwrap();
+
+        let header = AtfDetailHeader {
+            magic: *b"ATD2",
+            endian: 0x01,
+            version: 1,
+            arch: 1,
+            os: 3,
+            flags: 0,
+            thread_id: 0,
+            _reserved1: 0,
+            events_offset: 64, // == file size (no events, no footer)
+            event_count: 0,
+            bytes_length: 0,
+            index_seq_start: 0,
+            index_seq_end: 0,
+            _reserved2: [0; 4],
+        };
+
+        let header_bytes = unsafe {
+            std::slice::from_raw_parts(&header as *const _ as *const u8, 64)
+        };
+        file.write_all(header_bytes).unwrap();
+        file.flush().unwrap();
+
+        let reader = DetailReader::open(file.path()).unwrap();
+        assert!(reader.is_empty());
+        assert_eq!(reader.len(), 0);
     }
 }

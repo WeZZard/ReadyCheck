@@ -155,8 +155,9 @@ impl EventReader {
         let events_offset = header.events_offset as usize;
 
         // Validate events_offset
+        // Note: events_offset == mmap.len() is valid (empty events section)
         // LCOV_EXCL_START - Error path requires malformed file
-        if events_offset >= mmap.len() {
+        if events_offset > mmap.len() {
             bail!(
                 "Invalid events_offset {} (file size {})",
                 events_offset,

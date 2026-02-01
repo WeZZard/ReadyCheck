@@ -50,7 +50,8 @@ impl IndexReader {
         let events_offset = header.events_offset as usize;
 
         // Validate events_offset
-        if events_offset >= mmap.len() {
+        // Note: events_offset == mmap.len() is valid (empty events section)
+        if events_offset > mmap.len() {
             return Err(AtfV2Error::InvalidOffset {
                 offset: events_offset,
                 file_size: mmap.len(),
@@ -853,5 +854,41 @@ mod tests {
         // Count = 160 / 32 = 5 events (includes invalid footer as "events")
         assert_eq!(reader.len(), 5); // Calculated from file size
         assert!(reader.footer.is_none()); // Footer should be None due to invalid magic
+    }
+
+    #[test]
+    fn test_index_reader__header_only_file__then_succeeds() {
+        // User Story: M1_E5_I2 - Handle header-only file (events_offset == file_size)
+        // Test Plan: Edge Case Tests - Empty index files
+        let mut file = NamedTempFile::new().unwrap();
+
+        let header = AtfIndexHeader {
+            magic: *b"ATI2",
+            endian: 0x01,
+            version: 1,
+            arch: 1,
+            os: 3,
+            flags: 0,
+            thread_id: 0,
+            clock_type: 1,
+            _reserved1: [0; 3],
+            _reserved2: 0,
+            event_size: 32,
+            event_count: 0,
+            events_offset: 64, // == file size (no events, no footer)
+            footer_offset: 64,
+            time_start_ns: 0,
+            time_end_ns: 0,
+        };
+
+        let header_bytes = unsafe {
+            std::slice::from_raw_parts(&header as *const _ as *const u8, 64)
+        };
+        file.write_all(header_bytes).unwrap();
+        file.flush().unwrap();
+
+        let reader = IndexReader::open(file.path()).unwrap();
+        assert!(reader.is_empty());
+        assert_eq!(reader.len(), 0);
     }
 }
