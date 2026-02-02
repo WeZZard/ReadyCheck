@@ -1,34 +1,153 @@
 # Recall
 
-Accelerate debug by recalling your program behaviors and user feedback to your AI agents with ease.
+**Recall** makes debugging faster and clearer by capturing what happened and replaying it later.
 
 ## Get Recall
 
-<!-- A code snippept code shows how to get recall as a Claude Code skill from the marketplace WeZZard/skills -->
+```sh
+claude plugin marketplace add WeZZard/skills
+claude plugin install wezzard/recall
+```
 
-## Introduction
+This adds **Recall** skills for capture (`run`), analysis (`analyze`), and system checks (`ada-doctor`)
+
+## Use Recall
+
+**Run**
+
+Run the app explicitly with `/recall:run`
+
+It will build and run your app.
+
+```shell
+/recall:run Run the app
+```
+
+**Analyze**
+
+Just analyze after the app running done.
+
+After the analysis done it will trigger Claude Code's plan mode to build the fix plan.
+
+```shell
+/recall:analyze
+```
+
+**Supported Platforms and Programming Languages**
+
+| | macOS | iOS | Android | Linux | Windows |
+| --- | --- | --- | --- | --- | --- |
+| Swift | ✅ | 📋 | 📋 | 📋 | 📋 |
+| Objective-C | ✅ | 📋 | 📋 | 📋 | 📋 |
+| C | ✅ | 📋 | 📋 | 📋 | 📋 |
+| C++ | ✅ | 📋 | 📋 | 📋 | 📋 |
+| Rust | ⚠️ | 📋 | 📋 | 📋 | 📋 |
+| Kotlin | 📋 | 📋 | 📋 | 📋 | 📋 |
+| Java | 📋 | 📋 | 📋 | 📋 | 📋 |
+
+- ✅: Supported
+- ⚠️: Not Tested
+- 📋: Planned
+- 🚧: Under construction
+
+## Brief Introduction
 
 ### Agent-first Debugging Architecture
 
-<!-- Explain the new debugging architecture invented in this project in few lines. -->
+**Recall** records a single, shareable timeline of what you saw, what you said, and what your program did.
+
+It’s designed to give AI agents *evidence* (not guesses): a tight, time-aligned bundle they can summarize, search, and cite.
+Under the hood, a low-overhead “flight recorder” captures lightweight signals continuously and preserves rich details only when needed.
 
 ![Explaining Recall](README.md.d/tracks.png "Timeline showing synchronized screen recording, voice waveform, and function trace logs aligned by a red playhead timestamp.")
 
 ### Human-first Review Workflow
 
-<!-- Explain the workflow in the analyze skill to emphasize its human-first design. -->
+**Recall** implements a workflow that always puts human review opinions first in defining the problems and reviewing solutions.
+
+It leverages the ask user question tool and plan tool comes with Claude Code to provide **proactive** and **native** review experience.
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         ANALYZE WORKFLOW                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  ┌──────────────┐                                                       │
+│  │   Voice      │  "It crashed when I clicked save"                     │
+│  │  Transcript  │──────────────────────────────┐                        │
+│  └──────────────┘                              │                        │
+│                                                ▼                        │
+│                                    ┌───────────────────┐                │
+│                                    │ Intent Extraction │                │
+│                                    │    (Step 1)       │                │
+│                                    └─────────┬─────────┘                │
+│                                              │                          │
+│                                              ▼                          │
+│                              ┌───────────────────────────┐              │
+│                              │   Issue Selection (You)   │◄── Human     │
+│                              │        (Step 2)           │    Decision  │
+│                              └─────────────┬─────────────┘              │
+│                                            │                            │
+│         ┌──────────────────────────────────┼────────────────────┐       │
+│         │                                  │                    │       │
+│         ▼                                  ▼                    ▼       │
+│  ┌─────────────┐                   ┌─────────────┐      ┌─────────────┐ │
+│  │ Screenshots │                   │   Trace     │      │  Transcript │ │
+│  │  @ time T   │                   │   Events    │      │   Context   │ │
+│  └──────┬──────┘                   └──────┬──────┘      └──────┬──────┘ │
+│         │                                 │                    │        │
+│         └─────────────────────────────────┼────────────────────┘        │
+│                                           ▼                             │
+│                              ┌───────────────────────┐                  │
+│                              │  Evidence Correlation │                  │
+│                              │       (Step 3)        │                  │
+│                              └───────────┬───────────┘                  │
+│                                          │                              │
+│                                          ▼                              │
+│                              ┌───────────────────────┐                  │
+│                              │   Hypothesis Review   │◄── Human         │
+│                              │     (Steps 4-5)       │    Approval      │
+│                              └───────────┬───────────┘                  │
+│                                          │                              │
+│                                          ▼                              │
+│                              ┌───────────────────────┐                  │
+│                              │      Fix Plan         │◄── Human         │
+│                              │      (Step 6)         │    Sign-off      │
+│                              └───────────────────────┘                  │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
 
 ## Contributing Ideas
 
-<!-- Explain how to contribute ideas to this project. Ideas here is a fancy term for GitHub issue. -->
+Currently ideas are submitted as GitHub issues.
+
+If something feels missing or painful, open an issue with:
+
+- What you were trying to do, what you expected, and what happened instead
+- Your platform/version details
+- (Optional) A redacted session bundle or screenshots/timestamps
 
 ## Contributing Codes
 
-<!-- Explain how to contribute to the project -->
+Pull requests are welcome. Please:
+- Follow the build/setup guide: [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md)
+- Keep changes focused and tested
+- Run `cargo test --all` before opening a PR
 
 ## Contributing Tokens
 
-<!-- Explain how to contribute tokens to the project. Contributing tokens means to donate LLM API token quota to the project. -->
+This project is maintained by AI agents that constantly review the contributed ideas and implement them selectively with AI agents.
+
+If you want to support the project’s LLM-related costs (docs, examples, and evaluations), please open an issue to coordinate or sponsor the project.
+
+**Do not post API keys in issues.**
+
+**Contributable Tokens:**
+
+- Anthropic Claude 4.5 series
+- OpenAI GPT 5.2
+- Kimi K2.5
 
 ## License
 
