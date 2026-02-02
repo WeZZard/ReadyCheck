@@ -44,6 +44,61 @@ cargo test --all        # Run all tests
 ./utils/run_coverage.sh # Generate coverage reports
 ```
 
+## Claude Code Plugin
+
+ADA can be deployed as a Claude Code plugin for AI-assisted debugging workflows.
+
+### Building the Plugin
+
+```bash
+# Build and package as plugin (release build, with code signing on macOS)
+./utils/distribute.sh --form plugin
+
+# Build with debug profile
+./utils/distribute.sh --form plugin --debug
+
+# Custom output directory
+./utils/distribute.sh --form plugin --output /path/to/output
+```
+
+### Plugin Output Structure
+
+```
+dist/
+├── .claude-plugin/
+│   └── plugin.json       # Plugin metadata
+├── bin/
+│   ├── ada               # Main CLI (signed)
+│   ├── ada-capture-daemon
+│   └── ada-recorder
+├── lib/
+│   └── libfrida_agent.dylib
+└── skills/
+    ├── ada-doctor/       # System health check skill
+    ├── analyze/          # Session analysis skill
+    └── run/              # Application launch skill
+```
+
+### Testing the Plugin
+
+Launch Claude Code with the distribution directory to test the plugin:
+
+```bash
+# Launch Claude Code with ADA plugin
+claude --plugin ./dist
+
+# Or specify an absolute path
+claude --plugin /absolute/path/to/dist
+```
+
+### Available Skills
+
+Once launched with the plugin, you can use ADA skills:
+
+- `/ada:run` - Launch an application with ADA tracing
+- `/ada:analyze` - Analyze a captured session
+- `/ada:ada-doctor` - Check system dependencies
+
 ## Quality Requirements
 
 - **Build Success**: 100% (all components must build)
