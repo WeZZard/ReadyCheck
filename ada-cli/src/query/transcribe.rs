@@ -153,10 +153,8 @@ fn run_whisper(voice_path: &Path, bundle: &Bundle) -> Result<Transcript> {
         .arg("json")
         .arg("--output_dir")
         .arg(output_dir)
-        .arg("--language")
-        .arg("en")
         .arg("--model")
-        .arg("base")
+        .arg("tiny")
         .output()
         .with_context(|| "Failed to run whisper")?;
 

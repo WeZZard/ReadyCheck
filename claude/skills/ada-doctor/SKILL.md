@@ -57,9 +57,6 @@ ADA Doctor
 Core:
   ✓ frida agent: /path/to/libfrida_agent.dylib
 
-Capture:
-  ✓ code signing: valid
-
 Analysis:
   ✓ whisper: /opt/homebrew/bin/whisper
   ✗ ffmpeg: not found
@@ -88,7 +85,6 @@ Status: 1 issue found
 | Category | Check | Description |
 |----------|-------|-------------|
 | **Core** | Frida agent library | Checks `ADA_AGENT_RPATH_SEARCH_PATHS` or known paths for `libfrida_agent.dylib` |
-| **Capture** | Code signing (macOS) | Verifies ada binary has debugging entitlements |
 | **Analysis** | Whisper installed | Checks for OpenAI Whisper via `which whisper` |
 | **Analysis** | FFmpeg installed | Checks for FFmpeg via `which ffmpeg` |
 
@@ -107,6 +103,5 @@ If issues are found:
 ### Common Fixes
 
 - **Frida agent not found**: Set `ADA_AGENT_RPATH_SEARCH_PATHS` environment variable
-- **Code signing invalid**: Run `./utils/sign_binary.sh` to sign the ada binary
 - **Whisper not found**: `brew install openai-whisper`
 - **FFmpeg not found**: `brew install ffmpeg`

@@ -11,6 +11,8 @@ Analyze a captured ADA session using a voice-first workflow that extracts user i
 
 ## MANDATORY: Environment
 
+**MANDATORY:** Replace ${CLAUDE_PLUGIN_ROOT} with the actual path to the plugin root directory.
+
 **MANDATORY:** Before running any ada command, set the environment:
 
 ```bash
@@ -22,7 +24,6 @@ export ADA_AGENT_RPATH_SEARCH_PATHS="${ADA_LIB_DIR}"
 ## Recognize Session To Analyze
 
 You MUST recognize session to analyze and set $SESSION to the session ID.
-You MUST set $SESSION to @latest, if the user does not ask for a session to analyze.
 
 ## MANDATORY: Step 0. Preflight Check
 
@@ -331,9 +332,11 @@ ${ADA_BIN_DIR}/ada query @latest time-info
 ${ADA_BIN_DIR}/ada query --list-sessions
 
 # Voice transcript (JSON for parsing)
+# REQUIRED: The timeout duration of this tool MUST be 3600000 MS (60 MINUTES)
 ${ADA_BIN_DIR}/ada query @latest transcribe segments --limit 100 --format json
 
 # Voice transcript (time range)
+# REQUIRED: The timeout duration of this tool MUST be 3600000 MS (60 MINUTES)
 ${ADA_BIN_DIR}/ada query @latest transcribe segments --since <sec> --until <sec>
 
 # Screenshot at time

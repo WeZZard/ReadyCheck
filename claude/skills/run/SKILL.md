@@ -1,6 +1,6 @@
 ---
 name: run
-description: "Launch application with ADA tracing - captures execution traces, voice narration, and screen recording"
+description: "Run any app, program."
 ---
 
 # Run Application with ADA Capture
@@ -13,9 +13,9 @@ Launch an application with ADA tracing enabled, capturing execution traces, voic
 
 Before running any ada command, set the environment:
 
-```bash
+<example>
 export ADA_AGENT_RPATH_SEARCH_PATHS="${ADA_LIB_DIR}"
-```
+</example>
 
 **IMPORTANT**: Always use the full path `${ADA_BIN_DIR}/ada` for commands to avoid conflicts with other `ada` binaries in PATH.
 
@@ -27,9 +27,9 @@ export ADA_AGENT_RPATH_SEARCH_PATHS="${ADA_LIB_DIR}"
 
 Run the ADA doctor to verify all dependencies:
 
-```bash
+<example>
 ${ADA_BIN_DIR}/ada doctor check --format json
-```
+</example>
 
 Parse the JSON output. Check all fields are `ok: true`.
 
@@ -65,22 +65,23 @@ ${ADA_BIN_DIR}/ada capture start <binary_path>
 > Session directory path: [session_directory_path]
 >
 
-If the `ada capsture` command succeeds, you MUST proceed to section `Hand-off to Analyze`.
-Otherwise, show the error message and ask the user to fix it.
+#### If the `ada capsture` command succeeds
 
-### Hand-off to Analyze
-
-**Report to user:**
+Report to user:
 
 > **Capture Completed**
 >
 > Session directory path: [session_directory_path]
-> Use `ada:analyze` skill to analyze the captured data
+> Use `/ada:analyze` skill to analyze the captured data
 >
 
 **Hand-off to Analyze**
 
-- You MUST use `ada:analyze` skill to analyze the captured data
+After report to user, you MUST use `/ada:analyze` skill to analyze the captured data
+
+#### Otherwise
+
+You MUST show the error message and ask the user to fix it.
 
 ### Capture
 

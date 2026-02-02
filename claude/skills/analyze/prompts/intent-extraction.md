@@ -6,21 +6,18 @@ Extract user-reported issues from the voice transcript of an ADA capture session
 
 ## MANDATORY: Environment
 
-**MANDATORY:** Before running any ada command, set the environment:
-
-```bash
-export ADA_AGENT_RPATH_SEARCH_PATHS="${ADA_LIB_DIR}"
-```
+**MANDATORY:** Replace ${CLAUDE_PLUGIN_ROOT} with the actual path to the plugin root directory in ANY command invocation.
 
 ## MANDATORY: Step 1. Get Session Time Info
 
-Command: ${ADA_BIN_DIR}/ada query @latest time-info
+Command: ${ADA_BIN_DIR}/ada query {{$SESSION}} time-info
 
 Capture `first_event_ns` and `duration_sec` for later calculations.
 
 ## MANDATORY: Step 2. Get Voice Transcript
 
-Command: ${ADA_BIN_DIR}/ada query @latest transcribe segments --format json
+REQUIRED: The timeout duration of this tool MUST be 3600000 MS (60 MINUTES)
+Command: ${ADA_BIN_DIR}/ada query {{$SESSION}} transcribe segments --format json
 
 This returns segments with timestamps in seconds relative to session start.
 
@@ -75,10 +72,7 @@ Return a JSON object with this exact structure:
 
 ```json
 {
-  "session_info": {
-    "first_event_ns": [first_event_start_time_in_ns],
-    "duration_sec": [first_event_duration_in_seconds]
-  },
+  "session_info": {},
   "issues": [
     {
       "id": "ISS-XXX",

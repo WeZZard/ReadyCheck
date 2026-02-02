@@ -2,10 +2,16 @@
 # Distribute ADA skills and binaries
 #
 # Creates distribution packages with path substitution for either:
-# - standalone: Hardcoded paths to ADA-codex project location
+# - standalone: Hardcoded paths to ADA project location
 # - plugin: Uses ${CLAUDE_PLUGIN_ROOT} variable for paths
 
 set -e
+
+# Colors for output
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
@@ -25,7 +31,7 @@ usage() {
     echo ""
     echo "Options:"
     echo "  --form <plugin|standalone>  Required. Distribution form:"
-    echo "                                standalone - Hardcode paths to ADA-codex project location"
+    echo "                                standalone - Hardcode paths to ADA project location"
     echo "                                plugin     - Use \${CLAUDE_PLUGIN_ROOT} variable for paths"
     echo "  --output <dir>              Output directory (default: ./dist)"
     echo "  --debug                     Use debug build instead of release"
@@ -184,11 +190,95 @@ EOF
     # Copy library
     cp "$TARGET_DIR/tracer_backend/lib/libfrida_agent.dylib" "$OUTPUT_DIR/lib/"
 
+    # Sign binaries with developer certificate and entitlements for macOS tracing
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        ENTITLEMENTS_FILE="$SCRIPT_DIR/ada_entitlements.plist"
+        SIGNING_TYPE=""
+
+        # Find developer signing identity
+        SIGNING_IDENTITY=$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -1 | sed 's/.*"\(.*\)".*/\1/')
+
+        if [[ -z "$SIGNING_IDENTITY" ]]; then
+            echo -e "${YELLOW}Warning: No Developer ID certificate found${NC}"
+            echo "Using ad-hoc signing (binaries will work locally but may trigger Gatekeeper warnings)"
+            SIGNING_IDENTITY="-"
+            SIGNING_TYPE="ad-hoc"
+        else
+            echo -e "${GREEN}Found Developer ID certificate: $SIGNING_IDENTITY${NC}"
+            SIGNING_TYPE="developer-id"
+        fi
+
+        echo "Code signing binaries with debugging entitlements..."
+
+        for binary in "$OUTPUT_DIR/bin/"*; do
+            if [[ -f "$binary" && -x "$binary" ]]; then
+                codesign --force --sign "$SIGNING_IDENTITY" --entitlements "$ENTITLEMENTS_FILE" --options runtime "$binary"
+                echo "  Signed: $(basename "$binary")"
+            fi
+        done
+
+        # Also sign the Frida agent library
+        if [[ -f "$OUTPUT_DIR/lib/libfrida_agent.dylib" ]]; then
+            codesign --force --sign "$SIGNING_IDENTITY" --options runtime "$OUTPUT_DIR/lib/libfrida_agent.dylib"
+            echo "  Signed: libfrida_agent.dylib"
+        fi
+
+        # Verify signatures
+        echo ""
+        echo "Verifying signatures..."
+        VERIFY_FAILED=false
+
+        for binary in "$OUTPUT_DIR/bin/"*; do
+            if [[ -f "$binary" && -x "$binary" ]]; then
+                if codesign --verify --verbose "$binary" 2>/dev/null; then
+                    # Check for debugging entitlement
+                    if codesign -d --entitlements - --xml "$binary" 2>/dev/null | grep -q "get-task-allow"; then
+                        echo -e "  ${GREEN}✓${NC} $(basename "$binary"): signed with debugging entitlements"
+                    else
+                        echo -e "  ${YELLOW}⚠${NC} $(basename "$binary"): signed but missing debugging entitlements"
+                        VERIFY_FAILED=true
+                    fi
+                else
+                    echo -e "  ${YELLOW}✗${NC} $(basename "$binary"): signature verification failed"
+                    VERIFY_FAILED=true
+                fi
+            fi
+        done
+
+        if [[ -f "$OUTPUT_DIR/lib/libfrida_agent.dylib" ]]; then
+            if codesign --verify --verbose "$OUTPUT_DIR/lib/libfrida_agent.dylib" 2>/dev/null; then
+                echo -e "  ${GREEN}✓${NC} libfrida_agent.dylib: signed"
+            else
+                echo -e "  ${YELLOW}✗${NC} libfrida_agent.dylib: signature verification failed"
+                VERIFY_FAILED=true
+            fi
+        fi
+
+        if [[ "$VERIFY_FAILED" == true ]]; then
+            echo ""
+            echo -e "${YELLOW}Warning: Some signature verifications failed${NC}"
+        fi
+
+        echo ""
+        echo -e "${BLUE}Signing Summary:${NC}"
+        if [[ "$SIGNING_TYPE" == "developer-id" ]]; then
+            echo -e "  Type: ${GREEN}Developer ID${NC}"
+            echo "  Identity: $SIGNING_IDENTITY"
+            echo "  Note: Signed with your certificate. Gatekeeper will recognize this signature."
+        else
+            echo -e "  Type: ${YELLOW}Ad-hoc${NC}"
+            echo "  Note: No certificate. Users may need to right-click → Open on first run."
+        fi
+    fi
+
     # Copy and substitute all .md files in claude directory
+    # For plugin form, files go to root level (skills/, commands/)
+    # not nested under claude/
     find "$PROJECT_ROOT/claude" -name "*.md" -type f | while read -r src_file; do
         # Get relative path from claude directory
         rel_path="${src_file#$PROJECT_ROOT/claude/}"
-        dst_file="$OUTPUT_DIR/claude/$rel_path"
+        # Plugin form: files at root level (skills/X/SKILL.md, commands/X.md)
+        dst_file="$OUTPUT_DIR/$rel_path"
 
         # Create target directory if needed
         mkdir -p "$(dirname "$dst_file")"

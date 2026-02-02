@@ -21,11 +21,7 @@ This sub-task receives the following parameters from the main agent:
 
 ## MANDATORY: Environment
 
-**MANDATORY:** Before running any ada command, set the environment:
-
-```bash
-export ADA_AGENT_RPATH_SEARCH_PATHS="${ADA_LIB_DIR}"
-```
+**MANDATORY:** Replace ${CLAUDE_PLUGIN_ROOT} with the actual path to the plugin root directory in ANY command invocation.
 
 ## MANDATORY: Step 1. Calculate Nanosecond Time Window
 

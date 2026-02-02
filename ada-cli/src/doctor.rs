@@ -5,7 +5,6 @@
 use clap::Subcommand;
 use serde::Serialize;
 use std::path::PathBuf;
-use std::process::Command;
 
 #[derive(Subcommand)]
 pub enum DoctorCommands {
@@ -38,7 +37,6 @@ struct DoctorReport {
 #[derive(Serialize)]
 struct CheckResults {
     frida_agent: CheckResult,
-    code_signing: CheckResult,
     whisper: CheckResult,
     ffmpeg: CheckResult,
 }
@@ -51,11 +49,10 @@ pub fn run(cmd: DoctorCommands) -> anyhow::Result<()> {
 
 fn run_checks(format: &str) -> anyhow::Result<()> {
     let frida_agent = check_frida_agent();
-    let code_signing = check_code_signing();
     let whisper = check_whisper();
     let ffmpeg = check_ffmpeg();
 
-    let issues_count = [&frida_agent, &code_signing, &whisper, &ffmpeg]
+    let issues_count = [&frida_agent, &whisper, &ffmpeg]
         .iter()
         .filter(|c| !c.ok)
         .count();
@@ -71,7 +68,6 @@ fn run_checks(format: &str) -> anyhow::Result<()> {
             status,
             checks: CheckResults {
                 frida_agent,
-                code_signing,
                 whisper,
                 ffmpeg,
             },
@@ -79,7 +75,7 @@ fn run_checks(format: &str) -> anyhow::Result<()> {
         };
         println!("{}", serde_json::to_string_pretty(&report)?);
     } else {
-        print_text_report(&frida_agent, &code_signing, &whisper, &ffmpeg, issues_count);
+        print_text_report(&frida_agent, &whisper, &ffmpeg, issues_count);
     }
 
     if issues_count > 0 {
@@ -91,7 +87,6 @@ fn run_checks(format: &str) -> anyhow::Result<()> {
 
 fn print_text_report(
     frida_agent: &CheckResult,
-    code_signing: &CheckResult,
     whisper: &CheckResult,
     ffmpeg: &CheckResult,
     issues_count: usize,
@@ -101,10 +96,6 @@ fn print_text_report(
 
     println!("Core:");
     print_check("frida agent", frida_agent);
-    println!();
-
-    println!("Capture:");
-    print_check("code signing", code_signing);
     println!();
 
     println!("Analysis:");
@@ -186,62 +177,6 @@ fn check_frida_agent() -> CheckResult {
         ok: false,
         path: None,
         fix: Some("Set ADA_AGENT_RPATH_SEARCH_PATHS to directory containing libfrida_agent.dylib".to_string()),
-    }
-}
-
-/// Check if the ada binary has proper code signing with debugging entitlements
-fn check_code_signing() -> CheckResult {
-    // Get path to current executable
-    let exe_path = match std::env::current_exe() {
-        Ok(path) => path,
-        Err(_) => {
-            return CheckResult {
-                ok: false,
-                path: None,
-                fix: Some("Could not determine ada binary path".to_string()),
-            };
-        }
-    };
-
-    // Run codesign --display --entitlements - to check entitlements
-    let output = Command::new("codesign")
-        .args(["--display", "--entitlements", "-", "--xml"])
-        .arg(&exe_path)
-        .output();
-
-    match output {
-        Ok(result) => {
-            if !result.status.success() {
-                return CheckResult {
-                    ok: false,
-                    path: None,
-                    fix: Some("Run ./utils/sign_binary.sh to sign the ada binary".to_string()),
-                };
-            }
-
-            // Check for debugging entitlement in the output
-            let stdout = String::from_utf8_lossy(&result.stdout);
-            let has_debug_entitlement = stdout.contains("com.apple.security.get-task-allow");
-
-            if has_debug_entitlement {
-                CheckResult {
-                    ok: true,
-                    path: None,
-                    fix: None,
-                }
-            } else {
-                CheckResult {
-                    ok: false,
-                    path: None,
-                    fix: Some("Run ./utils/sign_binary.sh to add debugging entitlements".to_string()),
-                }
-            }
-        }
-        Err(_) => CheckResult {
-            ok: false,
-            path: None,
-            fix: Some("codesign command not available".to_string()),
-        },
     }
 }
 
@@ -380,11 +315,6 @@ mod tests {
                 frida_agent: CheckResult {
                     ok: true,
                     path: Some("/path/to/lib".to_string()),
-                    fix: None,
-                },
-                code_signing: CheckResult {
-                    ok: true,
-                    path: None,
                     fix: None,
                 },
                 whisper: CheckResult {
@@ -729,11 +659,6 @@ mod tests {
                     path: None,
                     fix: Some("Set ADA_AGENT_RPATH_SEARCH_PATHS".to_string()),
                 },
-                code_signing: CheckResult {
-                    ok: true,
-                    path: None,
-                    fix: None,
-                },
                 whisper: CheckResult {
                     ok: false,
                     path: None,
@@ -756,7 +681,6 @@ mod tests {
         assert_eq!(parsed["status"], "issues_found");
         assert_eq!(parsed["issues_count"], 2);
         assert_eq!(parsed["checks"]["frida_agent"]["ok"], false);
-        assert_eq!(parsed["checks"]["code_signing"]["ok"], true);
         assert_eq!(parsed["checks"]["whisper"]["ok"], false);
         assert_eq!(parsed["checks"]["ffmpeg"]["ok"], true);
         assert_eq!(
@@ -766,7 +690,7 @@ mod tests {
     }
 
     // =========================================================================
-    // Code Signing Check Tests
+    // CheckResult Invariant Tests
     // =========================================================================
 
     /// Validates a CheckResult follows the expected invariants
@@ -780,22 +704,6 @@ mod tests {
             result.ok,
             result.fix.is_none()
         );
-    }
-
-    #[test]
-    fn check_code_signing__returns_valid_result() {
-        // This test verifies the function returns a well-formed result
-        // regardless of the actual signing status (which depends on the test binary)
-        let result = check_code_signing();
-        validate_check_result(&result);
-
-        // Verify fix mentions signing when present
-        let fix_valid = result
-            .fix
-            .as_ref()
-            .map(|f| f.contains("sign") || f.contains("codesign"))
-            .unwrap_or(true);
-        assert!(fix_valid, "Fix should mention signing when present");
     }
 
     #[test]
