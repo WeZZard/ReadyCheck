@@ -1,0 +1,317 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_bump:
+        description: 'Version bump type (or "auto" for Codex to decide)'
+        required: true
+        default: 'auto'
+        type: choice
+        options:
+          - auto
+          - patch
+          - minor
+          - major
+      draft:
+        description: 'Create as draft release (for testing)'
+        required: true
+        default: true
+        type: boolean
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  analyze:
+    name: Analyze Changes
+    runs-on: ubuntu-latest
+    outputs:
+      version_type: ${{ steps.final-version.outputs.version_type }}
+      release_notes: ${{ steps.final-version.outputs.release_notes }}
+      new_version: ${{ steps.final-version.outputs.new_version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get current version
+        id: current-version
+        run: |
+          CURRENT_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          CURRENT_VERSION=${CURRENT_TAG#v}
+          echo "current_tag=$CURRENT_TAG" >> $GITHUB_OUTPUT
+          echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+          echo "Current version: $CURRENT_VERSION"
+
+      - name: Get commits since last tag
+        id: commits
+        run: |
+          CURRENT_TAG=${{ steps.current-version.outputs.current_tag }}
+          if [ "$CURRENT_TAG" = "v0.0.0" ]; then
+            COMMITS=$(git log --oneline --no-decorate | head -50)
+          else
+            COMMITS=$(git log --oneline --no-decorate ${CURRENT_TAG}..HEAD | head -50)
+          fi
+          echo "commits<<EOF" >> $GITHUB_OUTPUT
+          echo "$COMMITS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Analyze with Codex (auto mode)
+        id: codex-analysis
+        if: ${{ inputs.version_bump == 'auto' }}
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          # Use OpenAI API to analyze commits and determine version bump
+          COMMITS='${{ steps.commits.outputs.commits }}'
+
+          # Escape for JSON
+          COMMITS_ESCAPED=$(echo "$COMMITS" | jq -Rs .)
+
+          RESPONSE=$(curl -s https://api.openai.com/v1/chat/completions \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $OPENAI_API_KEY" \
+            -d @- << CURL_EOF
+          {
+            "model": "gpt-4o",
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are a release manager. Analyze git commits and determine semantic version bump type. Output ONLY valid JSON."
+              },
+              {
+                "role": "user",
+                "content": "Analyze these commits and determine version bump:\n\n${COMMITS_ESCAPED}\n\nRules:\n- patch: bug fixes, documentation, minor improvements\n- minor: new features, non-breaking changes\n- major: breaking changes, major refactors\n\nOutput JSON with these exact fields:\n{\"version_type\": \"patch|minor|major\", \"release_notes\": \"markdown release notes\", \"reasoning\": \"brief explanation\"}"
+              }
+            ],
+            "temperature": 0.3
+          }
+          CURL_EOF
+          )
+
+          # Extract the content from the response
+          CONTENT=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // empty')
+
+          if [ -z "$CONTENT" ]; then
+            echo "Error: Failed to get response from OpenAI API"
+            echo "$RESPONSE"
+            # Fallback to patch
+            echo '{"version_type": "patch", "release_notes": "Bug fixes and improvements", "reasoning": "API call failed, defaulting to patch"}' > codex-output.json
+          else
+            # Try to extract JSON from the content (in case it's wrapped in markdown)
+            echo "$CONTENT" | sed 's/^```json//; s/^```//; s/```$//' | jq '.' > codex-output.json 2>/dev/null || echo "$CONTENT" > codex-output.json
+          fi
+
+          cat codex-output.json
+
+      - name: Parse Codex Output
+        id: parse-codex
+        if: ${{ inputs.version_bump == 'auto' }}
+        run: |
+          VERSION_TYPE=$(jq -r '.version_type // "patch"' codex-output.json)
+          RELEASE_NOTES=$(jq -r '.release_notes // "Release updates"' codex-output.json)
+          REASONING=$(jq -r '.reasoning // "No reasoning provided"' codex-output.json)
+
+          echo "version_type=$VERSION_TYPE" >> $GITHUB_OUTPUT
+          echo "reasoning=$REASONING" >> $GITHUB_OUTPUT
+
+          # Handle multiline release notes
+          echo "release_notes<<EOF" >> $GITHUB_OUTPUT
+          echo "$RELEASE_NOTES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+          echo "Codex determined: $VERSION_TYPE"
+          echo "Reasoning: $REASONING"
+
+      - name: Calculate new version
+        id: final-version
+        run: |
+          CURRENT_VERSION=${{ steps.current-version.outputs.current_version }}
+
+          # Determine version type
+          if [ "${{ inputs.version_bump }}" = "auto" ]; then
+            VERSION_TYPE=${{ steps.parse-codex.outputs.version_type }}
+            RELEASE_NOTES='${{ steps.parse-codex.outputs.release_notes }}'
+          else
+            VERSION_TYPE=${{ inputs.version_bump }}
+            RELEASE_NOTES="Release $VERSION_TYPE update"
+          fi
+
+          # Parse current version
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT_VERSION"
+          MAJOR=${MAJOR:-0}
+          MINOR=${MINOR:-0}
+          PATCH=${PATCH:-0}
+
+          # Bump version
+          case $VERSION_TYPE in
+            major)
+              NEW_VERSION="$((MAJOR + 1)).0.0"
+              ;;
+            minor)
+              NEW_VERSION="${MAJOR}.$((MINOR + 1)).0"
+              ;;
+            patch|*)
+              NEW_VERSION="${MAJOR}.${MINOR}.$((PATCH + 1))"
+              ;;
+          esac
+
+          echo "version_type=$VERSION_TYPE" >> $GITHUB_OUTPUT
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+
+          # Handle multiline release notes for output
+          echo "release_notes<<EOF" >> $GITHUB_OUTPUT
+          echo "$RELEASE_NOTES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+          echo "New version: $NEW_VERSION ($VERSION_TYPE bump)"
+
+  build-release:
+    name: Build and Release
+    needs: analyze
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Initialize Frida SDK
+        run: |
+          chmod +x utils/init_third_parties.sh
+          ./utils/init_third_parties.sh
+
+      - name: Import Code Signing Certificate
+        env:
+          CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          # Create a temporary keychain
+          KEYCHAIN_PATH=$RUNNER_TEMP/build.keychain
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
+
+          # Decode certificate
+          echo "$CERTIFICATE_P12" | base64 --decode > $RUNNER_TEMP/certificate.p12
+
+          # Create and configure keychain
+          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+
+          # Import certificate
+          security import $RUNNER_TEMP/certificate.p12 -k $KEYCHAIN_PATH \
+            -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+
+          # Set key partition list
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+
+          # Add to search list
+          security list-keychains -d user -s $KEYCHAIN_PATH login.keychain
+          security default-keychain -s $KEYCHAIN_PATH
+
+          # Cleanup certificate file
+          rm $RUNNER_TEMP/certificate.p12
+
+          # Verify certificate is available
+          security find-identity -v -p codesigning
+
+      - name: Update Version in Cargo.toml
+        run: |
+          NEW_VERSION=${{ needs.analyze.outputs.new_version }}
+          # Update workspace version
+          sed -i '' "s/^version = \"[^\"]*\"/version = \"$NEW_VERSION\"/" Cargo.toml
+
+      - name: Build Distribution
+        run: |
+          chmod +x utils/distribute.sh
+          ./utils/distribute.sh --form plugin --output dist
+
+      - name: Package as Zip
+        run: |
+          VERSION=${{ needs.analyze.outputs.new_version }}
+          cd dist
+          zip -r ../recall-plugin-${VERSION}-macos.zip .
+          # Also create a "latest" zip for easy access
+          cp ../recall-plugin-${VERSION}-macos.zip ../recall-plugin-latest-macos.zip
+          cd ..
+          ls -la *.zip
+
+      - name: Generate Release Body
+        id: release-body
+        run: |
+          VERSION=${{ needs.analyze.outputs.new_version }}
+          VERSION_TYPE=${{ needs.analyze.outputs.version_type }}
+          NOTES='${{ needs.analyze.outputs.release_notes }}'
+
+          cat > release-body.md << 'BODY_EOF'
+          ## Recall Plugin v${{ needs.analyze.outputs.new_version }}
+
+          ${{ needs.analyze.outputs.release_notes }}
+
+          ### Installation
+
+          **Via Claude Code marketplace:**
+          ```bash
+          /plugin marketplace update wezzard-skills
+          /plugin install recall@wezzard-skills
+          ```
+
+          **Manual download:**
+          Download `recall-plugin-${{ needs.analyze.outputs.new_version }}-macos.zip` and extract to your plugins directory.
+
+          ### Requirements
+          - macOS (Apple Silicon or Intel)
+          - Apple Developer Certificate for code signing
+
+          ---
+          *Release type: ${{ needs.analyze.outputs.version_type }}*
+          BODY_EOF
+
+          cat release-body.md
+
+      - name: Create Tag and Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.analyze.outputs.new_version }}
+          name: Recall Plugin v${{ needs.analyze.outputs.new_version }}
+          body_path: release-body.md
+          files: |
+            recall-plugin-${{ needs.analyze.outputs.new_version }}-macos.zip
+            recall-plugin-latest-macos.zip
+          draft: ${{ inputs.draft }}
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Commit Version Bump
+        if: ${{ !inputs.draft }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Cargo.toml
+          git commit -m "chore: bump version to ${{ needs.analyze.outputs.new_version }}" || echo "No changes to commit"
+          git push || echo "Nothing to push"
+
+      - name: Summary
+        run: |
+          cat >> $GITHUB_STEP_SUMMARY << EOF
+          ## Release Summary
+
+          | Field | Value |
+          |-------|-------|
+          | Version | v${{ needs.analyze.outputs.new_version }} |
+          | Type | ${{ needs.analyze.outputs.version_type }} |
+          | Draft | ${{ inputs.draft }} |
+
+          ### Assets
+          - \`recall-plugin-${{ needs.analyze.outputs.new_version }}-macos.zip\`
+          - \`recall-plugin-latest-macos.zip\`
+
+          ### Next Steps
+          $(if [ "${{ inputs.draft }}" = "true" ]; then echo "1. Review the draft release in GitHub\n2. Publish when ready"; else echo "Release is live!"; fi)
+          EOF
