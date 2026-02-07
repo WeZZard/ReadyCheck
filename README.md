@@ -1,24 +1,24 @@
-# Recall
+# Walkthrough
 
-**Recall** makes debugging faster and clearer by capturing what happened and replaying it later.
+**Walkthrough** makes debugging faster and clearer by capturing what happened and replaying it later.
 
-## Get Recall
+## Get Walkthrough
 
 ```sh
 claude plugin marketplace add WeZZard/skills
-claude plugin install recall@wezzard-skills
+claude plugin install walkthrough@wezzard-skills
 ```
 
-This installs the **Recall** skills for capture (`run`), analysis (`analyze`), and system checks (`ada-doctor`).
+This installs the **Walkthrough** skills for capture (`run`), analysis (`analyze`), and system checks (`ada-doctor`).
 
-## Use Recall
+## Use Walkthrough
 
 **Run**
 
-Run your app with `/recall:run`. It builds and runs your app.
+Run your app with `/walkthrough:run`. It builds and runs your app.
 
 ```shell
-/recall:run Run the app
+/walkthrough:run Run the app
 ```
 
 **Analyze**
@@ -28,7 +28,7 @@ Run analysis after your app finishes running.
 When analysis completes, Claude Code enters Plan mode and generates a fix plan.
 
 ```shell
-/recall:analyze
+/walkthrough:analyze
 ```
 
 **Supported Platforms and Programming Languages**
@@ -52,7 +52,7 @@ When analysis completes, Claude Code enters Plan mode and generates a fix plan.
 
 ### Agent-first Debugging Architecture
 
-**Recall** records a layered, shareable timeline of what you saw, what you said, and what your program did.
+**Walkthrough** records a layered, shareable timeline of what you saw, what you said, and what your program did.
 
 It’s designed to give AI agents *evidence* (not guesses): a tight, time-aligned bundle they can summarize, search, and cite, including:
 
@@ -60,11 +60,11 @@ It’s designed to give AI agents *evidence* (not guesses): a tight, time-aligne
 - **Voice Waveform**: Records voice activity as a waveform.
 - **Function Activity Records**: Detailed traces of function activity.
 
-![Explaining Recall](README.md.d/tracks.png "Timeline showing synchronized screen recording, voice waveform, and function trace logs aligned by a red playhead timestamp.")
+![Explaining Walkthrough](README.md.d/tracks.png "Timeline showing synchronized screen recording, voice waveform, and function trace logs aligned by a red playhead timestamp.")
 
 ### Human-first Review Workflow
 
-**Recall** implements a workflow that keeps human judgment first—both when defining the problem and when reviewing solutions.
+**Walkthrough** implements a workflow that keeps human judgment first—both when defining the problem and when reviewing solutions.
 
 It leverages Claude Code’s Ask User Question and Plan tools to provide a **proactive**, **native** review experience.
 

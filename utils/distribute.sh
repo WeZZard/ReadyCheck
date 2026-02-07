@@ -154,7 +154,7 @@ if [[ "$FORM" == "plugin" ]]; then
     # Generate plugin.json with marketplace-compatible fields
     cat > "$OUTPUT_DIR/.claude-plugin/plugin.json" << EOF
 {
-  "name": "ada",
+  "name": "walkthrough",
   "version": "$VERSION",
   "description": "ADA - AI-powered application debugging assistant with dual-lane flight recorder",
   "author": {
