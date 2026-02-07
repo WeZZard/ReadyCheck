@@ -282,21 +282,21 @@ Call **ExitPlanMode** to make the user review the plan.
 ```bash
 ${ADA_BIN_DIR}/ada query @latest time-info
 ```
-If this fails, guide user to use `ada:run` skill first to capture a session.
+If this fails, guide user to use `/walkthrough` skill first to capture a session.
 
 ### No OpenAI Whisper Installed
 
 If OpenAI Whisper is not installed:
 1. Inform user: "OpenAI Whisper is not installed. Cannot perform voice analysis."
 2. Suggest installing it using `brew install openai-whisper`
-3. For full system check, suggest running the `ada-doctor` skill.
+3. For full system check, suggest running the `doctor` skill.
 
 ### No FFMPEG Installed
 
 If FFMPEG is not installed:
 1. Inform user: "FFMPEG is not installed. Cannot perform screen analysis."
 2. Suggest installing it using `brew install ffmpeg`
-3. For full system check, suggest running the `ada-doctor` skill.
+3. For full system check, suggest running the `doctor` skill.
 
 ### No Voice Recording
 

@@ -1,5 +1,5 @@
 ---
-name: ada-doctor
+name: doctor
 description: ADA system health check - verifies dependencies for capture and analysis
 ---
 

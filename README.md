@@ -9,26 +9,26 @@ claude plugin marketplace add WeZZard/skills
 claude plugin install walkthrough@wezzard-skills
 ```
 
-This installs the **Walkthrough** skills for capture (`run`), analysis (`analyze`), and system checks (`ada-doctor`).
+This installs the **Walkthrough** skills for capture and analysis (`walkthrough`), standalone analysis (`analyze`), and system checks (`doctor`).
 
 ## Use Walkthrough
 
-**Run**
+**Run and Analyze**
 
-Run your app with `/walkthrough:run`. It builds and runs your app.
+Run your app with `/walkthrough`. It builds, runs, captures, and automatically analyzes your app.
 
 ```shell
-/walkthrough:run Run the app
+/walkthrough Run the app
 ```
 
-**Analyze**
+**Analyze Only**
 
-Run analysis after your app finishes running.
+Run standalone analysis on an existing session.
 
 When analysis completes, Claude Code enters Plan mode and generates a fix plan.
 
 ```shell
-/walkthrough:analyze
+/analyze
 ```
 
 **Supported Platforms and Programming Languages**
