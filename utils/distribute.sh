@@ -145,7 +145,7 @@ fi
 rm -rf "$OUTPUT_DIR"
 
 if [[ "$FORM" == "plugin" ]]; then
-    mkdir -p "$OUTPUT_DIR"/{.claude-plugin,bin,lib}
+    mkdir -p "$OUTPUT_DIR"/{.claude-plugin,bin,lib,models}
 
     # Get version from workspace root Cargo.toml
     VERSION=$(grep -A1 '^\[workspace\.package\]' "$PROJECT_ROOT/Cargo.toml" | grep '^version' | sed 's/.*"\(.*\)".*/\1/')
@@ -190,6 +190,37 @@ EOF
     if [[ -f "$TARGET_DIR/ada-capture-daemon" ]]; then
         cp "$TARGET_DIR/ada-capture-daemon" "$OUTPUT_DIR/bin/"
         chmod +x "$OUTPUT_DIR/bin/ada-capture-daemon"
+    fi
+
+    # Copy bundled media tools (ffmpeg, ffprobe, whisper-cli) if available
+    for tool in ffmpeg ffprobe; do
+        if [[ -f "$PROJECT_ROOT/third_parties/ffmpeg-bin/$tool" ]]; then
+            cp "$PROJECT_ROOT/third_parties/ffmpeg-bin/$tool" "$OUTPUT_DIR/bin/"
+            chmod +x "$OUTPUT_DIR/bin/$tool"
+            echo -e "${GREEN}Bundled: $tool${NC}"
+        fi
+    done
+    if [[ -f "$PROJECT_ROOT/third_parties/whisper-bin/whisper-cli" ]]; then
+        cp "$PROJECT_ROOT/third_parties/whisper-bin/whisper-cli" "$OUTPUT_DIR/bin/"
+        chmod +x "$OUTPUT_DIR/bin/whisper-cli"
+        echo -e "${GREEN}Bundled: whisper-cli${NC}"
+        # Copy Metal library if present
+        if [[ -f "$PROJECT_ROOT/third_parties/whisper-bin/ggml-metal.metal" ]]; then
+            cp "$PROJECT_ROOT/third_parties/whisper-bin/ggml-metal.metal" "$OUTPUT_DIR/bin/"
+        fi
+    fi
+
+    # Copy whisper models
+    if [[ -d "$PROJECT_ROOT/third_parties/whisper-models" ]]; then
+        for model in "$PROJECT_ROOT/third_parties/whisper-models/"*.bin; do
+            if [[ -f "$model" ]]; then
+                cp "$model" "$OUTPUT_DIR/models/"
+                echo -e "${GREEN}Bundled: models/$(basename "$model")${NC}"
+            fi
+        done
+    else
+        echo -e "${YELLOW}Warning: No whisper models found at third_parties/whisper-models/${NC}"
+        echo "  Run: ./utils/init_media_tools.sh"
     fi
 
     # Copy library

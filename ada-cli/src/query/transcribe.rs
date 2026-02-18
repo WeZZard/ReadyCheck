@@ -72,8 +72,11 @@ pub struct TimeRange {
 /// Get or create transcript for a bundle
 // LCOV_EXCL_START - Requires real bundle with voice recording
 pub fn get_or_create_transcript(bundle: &Bundle) -> Result<Transcript> {
+    // Prefer lossless WAV (whisper-cli requires WAV input) over compressed m4a
     let voice_path = bundle
-        .voice_path()
+        .voice_lossless_path()
+        .filter(|p| p.exists())
+        .or_else(|| bundle.voice_path())
         .ok_or_else(|| anyhow::anyhow!("Session has no voice recording. Use --voice flag during capture."))?;
 
     if !voice_path.exists() {
@@ -119,7 +122,11 @@ pub fn is_cached(bundle: &Bundle) -> bool {
         return false;
     }
 
-    if let Some(voice_path) = bundle.voice_path() {
+    if let Some(voice_path) = bundle
+        .voice_lossless_path()
+        .filter(|p| p.exists())
+        .or_else(|| bundle.voice_path())
+    {
         if let (Ok(voice_meta), Ok(cache_meta)) =
             (fs::metadata(&voice_path), fs::metadata(&cache_path))
         {
@@ -133,61 +140,63 @@ pub fn is_cached(bundle: &Bundle) -> bool {
 }
 // LCOV_EXCL_STOP
 
-/// Run Whisper on a voice file
+/// Run whisper.cpp on a voice file
 // LCOV_EXCL_START - Requires whisper executable
 fn run_whisper(voice_path: &Path, bundle: &Bundle) -> Result<Transcript> {
-    // Check if whisper is available
-    let which_result = Command::new("which").arg("whisper").output();
-    if !which_result.map(|o| o.status.success()).unwrap_or(false) {
-        bail!("Whisper not available. Install with: pip install openai-whisper");
-    }
+    let whisper_path = ada_cli::binary_resolver::resolve(ada_cli::binary_resolver::Tool::WhisperCpp)
+        .map_err(|_| anyhow::anyhow!("Whisper not available. Run: ./utils/init_media_tools.sh"))?;
 
-    // Create temp directory for whisper output
+    // Ensure model is available
+    let model_path = ada_cli::model_manager::ensure_model("tiny")?;
+
+    // Create temp directory for output
     let temp_dir = tempfile::tempdir()?;
-    let output_dir = temp_dir.path();
 
-    // Run whisper with JSON output
-    let output = Command::new("whisper")
-        .arg(voice_path)
-        .arg("--output_format")
-        .arg("json")
-        .arg("--output_dir")
-        .arg(output_dir)
-        .arg("--model")
-        .arg("tiny")
-        .output()
-        .with_context(|| "Failed to run whisper")?;
+    // Resample to 16 kHz if needed (whisper-cli requires 16 kHz WAV)
+    let actual_voice_path = ada_cli::audio::ensure_16khz(voice_path, temp_dir.path())?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        bail!("Whisper failed: {}", stderr);
-    }
-
-    // Find the output JSON file
     let voice_stem = voice_path
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("voice");
-    let json_path = output_dir.join(format!("{}.json", voice_stem));
+    let output_prefix = temp_dir.path().join(voice_stem);
 
-    if !json_path.exists() {
-        bail!("Whisper did not produce expected output file");
+    // Run whisper.cpp
+    let output = Command::new(&whisper_path)
+        .arg("-f")
+        .arg(&actual_voice_path)
+        .arg("-m")
+        .arg(&model_path)
+        .arg("-oj")        // JSON output
+        .arg("-of")
+        .arg(&output_prefix) // writes <prefix>.json
+        .output()
+        .with_context(|| "Failed to run whisper-cli")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!("whisper-cli failed: {}", stderr);
     }
 
-    // Parse Whisper's JSON output
-    let content = fs::read_to_string(&json_path)?;
-    let whisper_output: WhisperOutput = serde_json::from_str(&content)
-        .with_context(|| "Failed to parse Whisper output")?;
+    // Read the JSON output
+    let json_path = temp_dir.path().join(format!("{}.json", voice_stem));
+    if !json_path.exists() {
+        bail!("whisper-cli did not produce expected output file");
+    }
 
-    // Convert to our format
-    let segments: Vec<Segment> = whisper_output
-        .segments
+    let content = fs::read_to_string(&json_path)?;
+    let cpp_output: WhisperCppOutput = serde_json::from_str(&content)
+        .with_context(|| "Failed to parse whisper-cli output")?;
+
+    // Convert whisper.cpp format to our internal format
+    let segments: Vec<Segment> = cpp_output
+        .transcription
         .into_iter()
         .enumerate()
         .map(|(i, seg)| Segment {
             index: i,
-            start_sec: seg.start,
-            end_sec: seg.end,
+            start_sec: seg.offsets.from as f64 / 1000.0,
+            end_sec: seg.offsets.to as f64 / 1000.0,
             text: seg.text.trim().to_string(),
         })
         .collect();
@@ -208,17 +217,22 @@ fn run_whisper(voice_path: &Path, bundle: &Bundle) -> Result<Transcript> {
 }
 // LCOV_EXCL_STOP
 
-/// Whisper JSON output format
+/// whisper.cpp JSON output format
 #[derive(Debug, Deserialize)]
-struct WhisperOutput {
-    segments: Vec<WhisperSegment>,
+struct WhisperCppOutput {
+    transcription: Vec<WhisperCppSegment>,
 }
 
 #[derive(Debug, Deserialize)]
-struct WhisperSegment {
-    start: f64,
-    end: f64,
+struct WhisperCppSegment {
+    offsets: WhisperCppOffsets,
     text: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct WhisperCppOffsets {
+    from: u64, // milliseconds
+    to: u64,   // milliseconds
 }
 
 /// Get transcript info
@@ -413,6 +427,147 @@ mod tests {
         assert!(output.contains("Segment Count:  10"));
         assert!(output.contains("Duration:       60.0 s"));
         assert!(output.contains("Cached:         yes"));
+    }
+
+    #[test]
+    fn test_whisper_cpp_output__parse__then_valid() {
+        let json = r#"{
+            "transcription": [
+                {
+                    "timestamps": {"from": "00:00:00,720", "to": "00:00:08,880"},
+                    "offsets": {"from": 720, "to": 8880},
+                    "text": " Hello, this is a test."
+                },
+                {
+                    "timestamps": {"from": "00:00:08,880", "to": "00:00:15,000"},
+                    "offsets": {"from": 8880, "to": 15000},
+                    "text": " Second segment here."
+                }
+            ]
+        }"#;
+
+        let parsed: WhisperCppOutput = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.transcription.len(), 2);
+        assert_eq!(parsed.transcription[0].offsets.from, 720);
+        assert_eq!(parsed.transcription[0].offsets.to, 8880);
+        assert_eq!(parsed.transcription[0].text, " Hello, this is a test.");
+    }
+
+    #[test]
+    fn test_whisper_cpp_output__convert_to_segments__then_correct_times() {
+        let cpp_output = WhisperCppOutput {
+            transcription: vec![
+                WhisperCppSegment {
+                    offsets: WhisperCppOffsets {
+                        from: 720,
+                        to: 8880,
+                    },
+                    text: " Hello, test.".to_string(),
+                },
+                WhisperCppSegment {
+                    offsets: WhisperCppOffsets {
+                        from: 8880,
+                        to: 15000,
+                    },
+                    text: " Second.".to_string(),
+                },
+            ],
+        };
+
+        let segments: Vec<Segment> = cpp_output
+            .transcription
+            .into_iter()
+            .enumerate()
+            .map(|(i, seg)| Segment {
+                index: i,
+                start_sec: seg.offsets.from as f64 / 1000.0,
+                end_sec: seg.offsets.to as f64 / 1000.0,
+                text: seg.text.trim().to_string(),
+            })
+            .collect();
+
+        assert_eq!(segments.len(), 2);
+        assert!((segments[0].start_sec - 0.72).abs() < 0.001);
+        assert!((segments[0].end_sec - 8.88).abs() < 0.001);
+        assert_eq!(segments[0].text, "Hello, test.");
+        assert!((segments[1].start_sec - 8.88).abs() < 0.001);
+        assert!((segments[1].end_sec - 15.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_whisper_cpp_output__parse_fixture_file__then_valid() {
+        let fixture_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/transcribe/expected_output.json");
+        let content = std::fs::read_to_string(&fixture_path)
+            .expect("fixture file should exist");
+        let parsed: WhisperCppOutput = serde_json::from_str(&content)
+            .expect("fixture should parse as WhisperCppOutput");
+
+        assert_eq!(parsed.transcription.len(), 2);
+
+        // First segment: "The quick brown fox jumps over the lazy dog."
+        assert_eq!(parsed.transcription[0].offsets.from, 0);
+        assert_eq!(parsed.transcription[0].offsets.to, 3000);
+        assert!(parsed.transcription[0].text.contains("quick brown fox"));
+
+        // Second segment: "Testing one two three."
+        assert_eq!(parsed.transcription[1].offsets.from, 3000);
+        assert_eq!(parsed.transcription[1].offsets.to, 5000);
+        assert!(parsed.transcription[1].text.contains("Testing"));
+    }
+
+    /// Golden file test: converting whisper.cpp output must produce JSON
+    /// identical to the committed expected_transcript.json.
+    ///
+    /// This catches any drift in the Transcript/Segment serialization format
+    /// that downstream consumers (cached transcript.json files, query commands)
+    /// depend on.
+    #[test]
+    fn test_whisper_cpp_output__fixture_to_transcript__then_matches_golden_file() {
+        let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/transcribe");
+
+        // Load whisper.cpp output fixture
+        let cpp_json = std::fs::read_to_string(fixtures.join("expected_output.json")).unwrap();
+        let cpp_output: WhisperCppOutput = serde_json::from_str(&cpp_json).unwrap();
+
+        // Convert using the same logic as run_whisper
+        let segments: Vec<Segment> = cpp_output
+            .transcription
+            .into_iter()
+            .enumerate()
+            .map(|(i, seg)| Segment {
+                index: i,
+                start_sec: seg.offsets.from as f64 / 1000.0,
+                end_sec: seg.offsets.to as f64 / 1000.0,
+                text: seg.text.trim().to_string(),
+            })
+            .collect();
+        let total_duration = segments.last().map(|s| s.end_sec).unwrap_or(0.0);
+        let transcript = Transcript {
+            segments,
+            total_duration_sec: total_duration,
+            voice_path: "voice.wav".to_string(),
+        };
+
+        // Serialize to JSON (same as what gets written to transcript.json)
+        let actual_json = serde_json::to_string_pretty(&transcript).unwrap();
+
+        // Load golden file
+        let expected_json =
+            std::fs::read_to_string(fixtures.join("expected_transcript.json")).unwrap();
+
+        // Compare as parsed Values to ignore whitespace differences
+        let actual: serde_json::Value = serde_json::from_str(&actual_json).unwrap();
+        let expected: serde_json::Value = serde_json::from_str(&expected_json).unwrap();
+
+        assert_eq!(
+            actual, expected,
+            "Transcript output format has drifted from golden file.\n\
+             If this is intentional, update tests/fixtures/transcribe/expected_transcript.json.\n\
+             Actual:\n{}\nExpected:\n{}",
+            actual_json, expected_json
+        );
     }
 
     #[test]

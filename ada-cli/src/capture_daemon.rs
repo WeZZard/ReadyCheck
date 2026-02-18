@@ -606,7 +606,8 @@ fn open_log_file(path: &Path) -> anyhow::Result<std::fs::File> {
 }
 
 fn encode_voice_to_aac(segment_dir: &Path) -> anyhow::Result<PathBuf> {
-    let ffmpeg = which::which("ffmpeg").context("ffmpeg not found in PATH")?;
+    let ffmpeg = ada_cli::binary_resolver::resolve(ada_cli::binary_resolver::Tool::Ffmpeg)
+        .context("ffmpeg not found")?;
     let input = segment_dir.join("voice.wav");
     let output = segment_dir.join("voice.m4a");
 

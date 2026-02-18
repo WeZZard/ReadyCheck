@@ -2,8 +2,6 @@
 //!
 //! Detects available query commands and their tool requirements.
 
-use std::process::Command;
-
 use serde::Serialize;
 
 use super::output::OutputFormat;
@@ -74,33 +72,25 @@ impl Capabilities {
     }
 }
 
-/// Check if whisper is available
+/// Check if whisper is available (bundled or system)
 fn detect_whisper_capability() -> QueryCapability {
-    let available = Command::new("which")
-        .arg("whisper")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
+    let available = ada_cli::binary_resolver::is_available(ada_cli::binary_resolver::Tool::WhisperCpp);
 
     QueryCapability {
         available,
         requires: Some("whisper".to_string()),
-        install_hint: Some("pip install openai-whisper".to_string()),
+        install_hint: Some("Run: ./utils/init_media_tools.sh".to_string()),
     }
 }
 
-/// Check if ffmpeg is available
+/// Check if ffmpeg is available (bundled or system)
 fn detect_ffmpeg_capability() -> QueryCapability {
-    let available = Command::new("which")
-        .arg("ffmpeg")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
+    let available = ada_cli::binary_resolver::is_available(ada_cli::binary_resolver::Tool::Ffmpeg);
 
     QueryCapability {
         available,
         requires: Some("ffmpeg".to_string()),
-        install_hint: Some("brew install ffmpeg".to_string()),
+        install_hint: Some("Run: ./utils/init_media_tools.sh".to_string()),
     }
 }
 

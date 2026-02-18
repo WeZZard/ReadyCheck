@@ -297,7 +297,7 @@ final class CaptureViewModel: ObservableObject {
         let url = URL(fileURLWithPath: path)
         let settings: [String: Any] = [
             AVFormatIDKey: kAudioFormatLinearPCM,
-            AVSampleRateKey: 48_000,
+            AVSampleRateKey: 16_000,
             AVNumberOfChannelsKey: 1,
             AVLinearPCMBitDepthKey: 16,
             AVLinearPCMIsFloatKey: false,

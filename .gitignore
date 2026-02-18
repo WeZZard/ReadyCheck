@@ -283,6 +283,13 @@ compile_commands.json
 # Third party dependencies
 /third_parties/frida-core-devkit-*.tar.xz
 /third_parties/frida-gum-devkit-*.tar.xz
+/third_parties/ffmpeg-bin/
+/third_parties/ffmpeg-*.zip
+/third_parties/ffmpeg-download.*
+/third_parties/ffprobe-download.*
+/third_parties/whisper-bin/
+/third_parties/whisper-models/
+/third_parties/whisper.cpp/
 # Local build directories
 build/
 build_tracer/

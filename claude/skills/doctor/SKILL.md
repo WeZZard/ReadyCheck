@@ -58,25 +58,23 @@ Core:
   ✓ frida agent: /path/to/libfrida_agent.dylib
 
 Analysis:
-  ✓ whisper: /opt/homebrew/bin/whisper
-  ✗ ffmpeg: not found
-    → brew install ffmpeg
+  ✓ whisper: /path/to/bin/whisper-cli
+  ✓ ffmpeg: /path/to/bin/ffmpeg
 
-Status: 1 issue found
+Status: All checks passed
 ```
 
 ### Example JSON Output
 
 ```json
 {
-  "status": "issues_found",
+  "status": "ok",
   "checks": {
-    "frida_agent": { "ok": true, "path": "/path/to/lib" },
-    "code_signing": { "ok": true },
-    "whisper": { "ok": true, "path": "/opt/homebrew/bin/whisper" },
-    "ffmpeg": { "ok": false, "fix": "brew install ffmpeg" }
+    "frida_agent": { "ok": true, "path": "/path/to/lib/libfrida_agent.dylib" },
+    "whisper": { "ok": true, "path": "/path/to/bin/whisper-cli" },
+    "ffmpeg": { "ok": true, "path": "/path/to/bin/ffmpeg" }
   },
-  "issues_count": 1
+  "issues_count": 0
 }
 ```
 
@@ -85,8 +83,8 @@ Status: 1 issue found
 | Category | Check | Description |
 |----------|-------|-------------|
 | **Core** | Frida agent library | Checks `ADA_AGENT_RPATH_SEARCH_PATHS` or known paths for `libfrida_agent.dylib` |
-| **Analysis** | Whisper installed | Checks for OpenAI Whisper via `which whisper` |
-| **Analysis** | FFmpeg installed | Checks for FFmpeg via `which ffmpeg` |
+| **Analysis** | Whisper installed | Checks for whisper-cli (bundled) or whisper (system) |
+| **Analysis** | FFmpeg installed | Checks for bundled or system FFmpeg |
 
 **NOT checked by doctor** (checked at runtime when capture starts):
 - Screen recording permission - Triggers OS dialog if checked
@@ -103,5 +101,5 @@ If issues are found:
 ### Common Fixes
 
 - **Frida agent not found**: Set `ADA_AGENT_RPATH_SEARCH_PATHS` environment variable
-- **Whisper not found**: `brew install openai-whisper`
-- **FFmpeg not found**: `brew install ffmpeg`
+- **Whisper not found**: Run `./utils/init_media_tools.sh` (development) or reinstall the plugin (production)
+- **FFmpeg not found**: Run `./utils/init_media_tools.sh` (development) or reinstall the plugin (production)

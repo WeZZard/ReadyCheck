@@ -601,7 +601,8 @@ mod tests {
 }
 
 fn encode_voice_to_aac(bundle_dir: &Path) -> anyhow::Result<PathBuf> {
-    let ffmpeg = which::which("ffmpeg").context("ffmpeg not found in PATH")?;
+    let ffmpeg = ada_cli::binary_resolver::resolve(ada_cli::binary_resolver::Tool::Ffmpeg)
+        .context("ffmpeg not found")?;
     let input = bundle_dir.join("voice.wav");
     let output = bundle_dir.join("voice.m4a");
 

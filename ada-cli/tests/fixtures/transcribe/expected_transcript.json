@@ -1,0 +1,18 @@
+{
+  "segments": [
+    {
+      "index": 0,
+      "start_sec": 0.0,
+      "end_sec": 3.0,
+      "text": "The quick brown fox jumps over the lazy dog."
+    },
+    {
+      "index": 1,
+      "start_sec": 3.0,
+      "end_sec": 5.0,
+      "text": "Testing one two three."
+    }
+  ],
+  "total_duration_sec": 5.0,
+  "voice_path": "voice.wav"
+}

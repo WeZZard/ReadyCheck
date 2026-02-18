@@ -45,11 +45,9 @@ pub fn extract_screenshot(
         );
     }
 
-    // Check if ffmpeg is available
-    let which_result = Command::new("which").arg("ffmpeg").output();
-    if !which_result.map(|o| o.status.success()).unwrap_or(false) {
-        bail!("FFmpeg not available. Install with: brew install ffmpeg");
-    }
+    // Resolve ffmpeg and ffprobe via binary_resolver
+    let ffmpeg_path = ada_cli::binary_resolver::resolve(ada_cli::binary_resolver::Tool::Ffmpeg)
+        .map_err(|_| anyhow::anyhow!("FFmpeg not available. Run: ./utils/init_media_tools.sh"))?;
 
     // Determine output path
     let output = match output_path {
@@ -67,7 +65,7 @@ pub fn extract_screenshot(
 
     // Run ffmpeg to extract frame
     // -ss before -i for fast seeking
-    let ffmpeg_output = Command::new("ffmpeg")
+    let ffmpeg_output = Command::new(&ffmpeg_path)
         .arg("-y") // Overwrite output file
         .arg("-ss")
         .arg(format!("{:.3}", time_sec))
@@ -103,7 +101,9 @@ pub fn extract_screenshot(
 
 /// Get image dimensions using ffprobe
 fn get_image_dimensions(path: &Path) -> Result<(Option<u32>, Option<u32>)> {
-    let output = Command::new("ffprobe")
+    let ffprobe_path = ada_cli::binary_resolver::resolve(ada_cli::binary_resolver::Tool::Ffprobe)
+        .unwrap_or_else(|_| std::path::PathBuf::from("ffprobe"));
+    let output = Command::new(&ffprobe_path)
         .arg("-v")
         .arg("error")
         .arg("-select_streams")

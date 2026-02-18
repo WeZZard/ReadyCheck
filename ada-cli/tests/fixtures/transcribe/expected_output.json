@@ -1,0 +1,18 @@
+{
+  "systeminfo": "(fixture - not from real whisper.cpp run)",
+  "model": { "type": "tiny" },
+  "params": {},
+  "result": {},
+  "transcription": [
+    {
+      "timestamps": { "from": "00:00:00,000", "to": "00:00:03,000" },
+      "offsets": { "from": 0, "to": 3000 },
+      "text": " The quick brown fox jumps over the lazy dog."
+    },
+    {
+      "timestamps": { "from": "00:00:03,000", "to": "00:00:05,000" },
+      "offsets": { "from": 3000, "to": 5000 },
+      "text": " Testing one two three."
+    }
+  ]
+}

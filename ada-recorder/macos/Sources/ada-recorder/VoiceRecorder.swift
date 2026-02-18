@@ -43,7 +43,7 @@ final class VoiceRecorder {
         // Settings matching GUI app for consistency
         let settings: [String: Any] = [
             AVFormatIDKey: kAudioFormatLinearPCM,
-            AVSampleRateKey: 48_000,
+            AVSampleRateKey: 16_000,
             AVNumberOfChannelsKey: 1,
             AVLinearPCMBitDepthKey: 16,
             AVLinearPCMIsFloatKey: false,

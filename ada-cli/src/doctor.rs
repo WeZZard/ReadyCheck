@@ -180,9 +180,9 @@ fn check_frida_agent() -> CheckResult {
     }
 }
 
-/// Check if whisper is installed
+/// Check if whisper is installed (bundled or system)
 fn check_whisper() -> CheckResult {
-    match which::which("whisper") {
+    match ada_cli::binary_resolver::resolve(ada_cli::binary_resolver::Tool::WhisperCpp) {
         Ok(path) => CheckResult {
             ok: true,
             path: Some(path.display().to_string()),
@@ -191,14 +191,14 @@ fn check_whisper() -> CheckResult {
         Err(_) => CheckResult {
             ok: false,
             path: None,
-            fix: Some("brew install openai-whisper".to_string()),
+            fix: Some("Run: ./utils/init_media_tools.sh".to_string()),
         },
     }
 }
 
-/// Check if ffmpeg is installed
+/// Check if ffmpeg is installed (bundled or system)
 fn check_ffmpeg() -> CheckResult {
-    match which::which("ffmpeg") {
+    match ada_cli::binary_resolver::resolve(ada_cli::binary_resolver::Tool::Ffmpeg) {
         Ok(path) => CheckResult {
             ok: true,
             path: Some(path.display().to_string()),
@@ -207,7 +207,7 @@ fn check_ffmpeg() -> CheckResult {
         Err(_) => CheckResult {
             ok: false,
             path: None,
-            fix: Some("brew install ffmpeg".to_string()),
+            fix: Some("Run: ./utils/init_media_tools.sh".to_string()),
         },
     }
 }
@@ -215,13 +215,7 @@ fn check_ffmpeg() -> CheckResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
     use tempfile::TempDir;
-
-    /// Mutex to serialize tests that modify environment variables.
-    /// Environment variables are global state, so tests that modify them
-    /// must not run concurrently.
-    static ENV_MUTEX: Mutex<()> = Mutex::new(());
 
     /// Execute a closure with a temporarily modified environment variable.
     /// Restores the original value (or removes the variable) after the closure completes.
@@ -229,7 +223,7 @@ mod tests {
     where
         F: FnOnce() -> R,
     {
-        let _guard = ENV_MUTEX.lock().unwrap();
+        let _guard = ada_cli::test_utils::ENV_MUTEX.lock().unwrap();
         let original = std::env::var(key).ok();
 
         match value {
@@ -252,7 +246,7 @@ mod tests {
     where
         F: FnOnce() -> R,
     {
-        let _guard = ENV_MUTEX.lock().unwrap();
+        let _guard = ada_cli::test_utils::ENV_MUTEX.lock().unwrap();
         let mut originals = Vec::new();
 
         for (key, value) in vars {
@@ -325,7 +319,7 @@ mod tests {
                 ffmpeg: CheckResult {
                     ok: false,
                     path: None,
-                    fix: Some("brew install ffmpeg".to_string()),
+                    fix: Some("Run: ./utils/init_media_tools.sh".to_string()),
                 },
             },
             issues_count: 1,
@@ -449,9 +443,9 @@ mod tests {
     // =========================================================================
 
     #[test]
-    fn check_whisper__in_path__then_ok() {
+    fn check_whisper__env_override__then_ok() {
         let temp_dir = TempDir::new().unwrap();
-        let exe_path = temp_dir.path().join("whisper");
+        let exe_path = temp_dir.path().join("whisper-cli");
 
         // Create a mock executable
         #[cfg(unix)]
@@ -465,30 +459,37 @@ mod tests {
             std::fs::write(&exe_path, "mock executable").unwrap();
         }
 
-        let original_path = std::env::var("PATH").unwrap_or_default();
-        let new_path = format!("{}:{}", temp_dir.path().display(), original_path);
+        let result = with_env(
+            "ADA_WHISPER_PATH",
+            Some(exe_path.to_str().unwrap()),
+            check_whisper,
+        );
 
-        let result = with_env("PATH", Some(&new_path), check_whisper);
-
-        assert!(result.ok, "Whisper should be found in PATH");
+        assert!(result.ok, "Whisper should be found via env override");
         assert!(result.path.is_some(), "Path should be set when found");
         assert!(
-            result.path.unwrap().contains("whisper"),
-            "Path should contain 'whisper'"
+            result.path.unwrap().contains("whisper-cli"),
+            "Path should contain 'whisper-cli'"
         );
     }
 
     #[test]
     fn check_whisper__not_in_path__then_not_found() {
         // Use an empty PATH to ensure whisper won't be found
-        let result = with_env("PATH", Some(""), check_whisper);
+        let result = with_envs(
+            &[
+                ("PATH", Some("")),
+                ("ADA_WHISPER_PATH", None),
+            ],
+            check_whisper,
+        );
 
         assert!(!result.ok, "Whisper should not be found with empty PATH");
         assert!(result.path.is_none(), "Path should be None when not found");
         assert!(result.fix.is_some(), "Should have fix suggestion");
         assert!(
-            result.fix.unwrap().contains("brew install"),
-            "Fix should suggest brew install"
+            result.fix.unwrap().contains("init_media_tools"),
+            "Fix should suggest init_media_tools.sh"
         );
     }
 
@@ -497,7 +498,7 @@ mod tests {
     // =========================================================================
 
     #[test]
-    fn check_ffmpeg__in_path__then_ok() {
+    fn check_ffmpeg__env_override__then_ok() {
         let temp_dir = TempDir::new().unwrap();
         let exe_path = temp_dir.path().join("ffmpeg");
 
@@ -513,12 +514,13 @@ mod tests {
             std::fs::write(&exe_path, "mock executable").unwrap();
         }
 
-        let original_path = std::env::var("PATH").unwrap_or_default();
-        let new_path = format!("{}:{}", temp_dir.path().display(), original_path);
+        let result = with_env(
+            "ADA_FFMPEG_PATH",
+            Some(exe_path.to_str().unwrap()),
+            check_ffmpeg,
+        );
 
-        let result = with_env("PATH", Some(&new_path), check_ffmpeg);
-
-        assert!(result.ok, "FFmpeg should be found in PATH");
+        assert!(result.ok, "FFmpeg should be found via env override");
         assert!(result.path.is_some(), "Path should be set when found");
         assert!(
             result.path.unwrap().contains("ffmpeg"),
@@ -529,14 +531,20 @@ mod tests {
     #[test]
     fn check_ffmpeg__not_in_path__then_not_found() {
         // Use an empty PATH to ensure ffmpeg won't be found
-        let result = with_env("PATH", Some(""), check_ffmpeg);
+        let result = with_envs(
+            &[
+                ("PATH", Some("")),
+                ("ADA_FFMPEG_PATH", None),
+            ],
+            check_ffmpeg,
+        );
 
         assert!(!result.ok, "FFmpeg should not be found with empty PATH");
         assert!(result.path.is_none(), "Path should be None when not found");
         assert!(result.fix.is_some(), "Should have fix suggestion");
         assert!(
-            result.fix.unwrap().contains("brew install ffmpeg"),
-            "Fix should suggest brew install ffmpeg"
+            result.fix.unwrap().contains("init_media_tools"),
+            "Fix should suggest init_media_tools.sh"
         );
     }
 
@@ -662,7 +670,7 @@ mod tests {
                 whisper: CheckResult {
                     ok: false,
                     path: None,
-                    fix: Some("brew install openai-whisper".to_string()),
+                    fix: Some("Run: ./utils/init_media_tools.sh".to_string()),
                 },
                 ffmpeg: CheckResult {
                     ok: true,
