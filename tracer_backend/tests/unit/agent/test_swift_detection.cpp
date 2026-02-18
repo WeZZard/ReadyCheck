@@ -204,3 +204,103 @@ TEST(symbolic_metadata__null__then_returns_false, unit) {
 TEST(symbolic_metadata__empty__then_returns_false, unit) {
     EXPECT_FALSE(ada_is_swift_symbolic_metadata(""));
 }
+
+// =============================================================================
+// Test: ada_is_swift_compiler_stub
+// =============================================================================
+
+// ── Positive cases: Prefix checks (non-mangled) ──
+
+TEST(compiler_stub__swift_runtime_helper__then_returns_true, unit) {
+    EXPECT_TRUE(ada_is_swift_compiler_stub("__swift_memcpy"));
+    EXPECT_TRUE(ada_is_swift_compiler_stub("___swift_noop"));
+}
+
+TEST(compiler_stub__sil_objectdestroy__then_returns_true, unit) {
+    EXPECT_TRUE(ada_is_swift_compiler_stub("objectdestroy.10"));
+    EXPECT_TRUE(ada_is_swift_compiler_stub("_objectdestroy"));
+}
+
+TEST(compiler_stub__block_abi_helpers__then_returns_true, unit) {
+    EXPECT_TRUE(ada_is_swift_compiler_stub("block_copy_helper"));
+    EXPECT_TRUE(ada_is_swift_compiler_stub("block_destroy_helper"));
+}
+
+// ── Positive cases: Suffix checks (Swift-mangled $s/_$s) ──
+
+TEST(compiler_stub__metadata_accessor_Ma__then_returns_true, unit) {
+    EXPECT_TRUE(ada_is_swift_compiler_stub("$s4SomeClassCMa"));
+    EXPECT_TRUE(ada_is_swift_compiler_stub("_$s4SomeClassCMa"));
+}
+
+TEST(compiler_stub__type_metadata_accessor_Tm__then_returns_true, unit) {
+    EXPECT_TRUE(ada_is_swift_compiler_stub("$s7ExampleCfETm"));
+}
+
+TEST(compiler_stub__back_deploy_thunk_Wb__then_returns_true, unit) {
+    EXPECT_TRUE(ada_is_swift_compiler_stub("$s7ExampleWb"));
+}
+
+TEST(compiler_stub__metaclass_init_Mi__then_returns_true, unit) {
+    EXPECT_TRUE(ada_is_swift_compiler_stub("$s7ExampleCMi"));
+}
+
+TEST(compiler_stub__type_metadata_completion_Mr__then_returns_true, unit) {
+    EXPECT_TRUE(ada_is_swift_compiler_stub("$s7ExampleCMr"));
+}
+
+TEST(compiler_stub__witness_table_lazy_accessor_Wl_WL__then_returns_true, unit) {
+    EXPECT_TRUE(ada_is_swift_compiler_stub("$s7ExampleWl"));
+    EXPECT_TRUE(ada_is_swift_compiler_stub("$s7ExampleWL"));
+}
+
+TEST(compiler_stub__witness_table_copy_accessor_template__then_returns_true, unit) {
+    EXPECT_TRUE(ada_is_swift_compiler_stub("$s7Examplewcp"));
+    EXPECT_TRUE(ada_is_swift_compiler_stub("$s7Examplewca"));
+    EXPECT_TRUE(ada_is_swift_compiler_stub("$s7Examplewct"));
+}
+
+TEST(compiler_stub__outlined_operations__then_returns_true, unit) {
+    EXPECT_TRUE(ada_is_swift_compiler_stub("$s7ExampleOe"));
+    EXPECT_TRUE(ada_is_swift_compiler_stub("$s7ExampleOh"));
+    EXPECT_TRUE(ada_is_swift_compiler_stub("$s7ExampleOb"));
+    EXPECT_TRUE(ada_is_swift_compiler_stub("$s7ExampleOc"));
+    EXPECT_TRUE(ada_is_swift_compiler_stub("$s7ExampleOd"));
+    EXPECT_TRUE(ada_is_swift_compiler_stub("$s7ExampleOy"));
+}
+
+TEST(compiler_stub__outlined_value_witness_Ow__then_returns_true, unit) {
+    EXPECT_TRUE(ada_is_swift_compiler_stub("$s7ExampleOwxx"));
+}
+
+TEST(compiler_stub__value_witness_table_entry_Vw__then_returns_true, unit) {
+    EXPECT_TRUE(ada_is_swift_compiler_stub("$s7ExampleVwxx"));
+}
+
+// ── Negative cases: Must NOT filter ──
+
+TEST(compiler_stub__protocol_witness_thunk_TW__then_returns_false, unit) {
+    EXPECT_FALSE(ada_is_swift_compiler_stub("$s7ExampleTW"));
+}
+
+TEST(compiler_stub__regular_swift_deinit__then_returns_false, unit) {
+    EXPECT_FALSE(ada_is_swift_compiler_stub("$s7ExampleCfD"));
+}
+
+TEST(compiler_stub__regular_swift_getter__then_returns_false, unit) {
+    EXPECT_FALSE(ada_is_swift_compiler_stub("_$s12MultiheadApp0C0V7contentQrvg"));
+}
+
+TEST(compiler_stub__c_functions__then_returns_false, unit) {
+    EXPECT_FALSE(ada_is_swift_compiler_stub("malloc"));
+    EXPECT_FALSE(ada_is_swift_compiler_stub("_main"));
+    EXPECT_FALSE(ada_is_swift_compiler_stub("objc_msgSend"));
+}
+
+TEST(compiler_stub__null__then_returns_false, unit) {
+    EXPECT_FALSE(ada_is_swift_compiler_stub(nullptr));
+}
+
+TEST(compiler_stub__empty__then_returns_false, unit) {
+    EXPECT_FALSE(ada_is_swift_compiler_stub(""));
+}

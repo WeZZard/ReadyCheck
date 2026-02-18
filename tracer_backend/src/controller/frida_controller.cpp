@@ -695,6 +695,14 @@ int FridaController::spawn_suspended(const char* path, char* const argv[], uint3
         envp_vec.push_back(wait_debug_str.c_str());
     }
 
+    // Propagate ADA_AGENT_VERBOSE for hook statistics
+    const char* agent_verbose = g_getenv("ADA_AGENT_VERBOSE");
+    std::string agent_verbose_str;
+    if (agent_verbose) {
+        agent_verbose_str = std::string("ADA_AGENT_VERBOSE=") + agent_verbose;
+        envp_vec.push_back(agent_verbose_str.c_str());
+    }
+
     envp_vec.push_back(nullptr);
 
     frida_spawn_options_set_envp(options, const_cast<gchar**>(envp_vec.data()), envp_vec.size() - 1);

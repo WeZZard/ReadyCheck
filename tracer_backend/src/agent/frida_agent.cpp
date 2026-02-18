@@ -583,48 +583,6 @@ static bool is_text_section(const GumSymbolSection* section) {
     return strstr(section->id, "__text") != nullptr;
 }
 
-// Check if a Swift symbol is a witness table or metadata helper that should not be hooked.
-// These are runtime internal symbols that, if hooked, corrupt Swift's type system.
-static bool is_swift_runtime_helper(const char* name) {
-    if (name == nullptr || name[0] == '\0') {
-        return false;
-    }
-    size_t len = strlen(name);
-    if (len < 3) {
-        return false;
-    }
-    // Swift mangled symbols start with $s or _$s
-    bool is_swift = (name[0] == '$' && name[1] == 's') ||
-                    (name[0] == '_' && name[1] == '$' && name[2] == 's');
-    if (!is_swift) {
-        return false;
-    }
-    // Check suffixes that indicate witness tables and metadata accessors:
-    // wcp = witness table copy
-    // wca = witness table accessor
-    // wct = witness table copy template
-    // Wl/WL = witness table lazy accessor
-    // Ma = metadata accessor
-    const char* end = name + len;
-    if (len >= 3) {
-        const char* suffix3 = end - 3;
-        if (strcmp(suffix3, "wcp") == 0 ||
-            strcmp(suffix3, "wca") == 0 ||
-            strcmp(suffix3, "wct") == 0) {
-            return true;
-        }
-    }
-    if (len >= 2) {
-        const char* suffix2 = end - 2;
-        if (strcmp(suffix2, "Wl") == 0 ||
-            strcmp(suffix2, "WL") == 0 ||
-            strcmp(suffix2, "Ma") == 0) {
-            return true;
-        }
-    }
-    return false;
-}
-
 static gboolean collect_symbols_cb(const GumSymbolDetails* details, gpointer user_data) {
     auto* vec = reinterpret_cast<std::vector<SymbolEntry>*>(user_data);
     if (details == nullptr || details->name == nullptr || details->name[0] == '\0') {
@@ -661,8 +619,8 @@ static gboolean collect_symbols_cb(const GumSymbolDetails* details, gpointer use
     if (ada_is_swift_symbolic_metadata(details->name)) {
         return TRUE;
     }
-    // Skip Swift witness table and metadata helpers (hooking corrupts Swift runtime)
-    if (is_swift_runtime_helper(details->name)) {
+    // Skip Swift compiler-generated stubs (metadata, witnesses, outlined ops)
+    if (ada_is_swift_compiler_stub(details->name)) {
         return TRUE;
     }
     vec->push_back(SymbolEntry{details->name, details->address});
@@ -671,7 +629,7 @@ static gboolean collect_symbols_cb(const GumSymbolDetails* details, gpointer use
 
 // Default symbol limit as a safety net to prevent Frida transport timeouts
 // With symbol type filtering, debug builds should have ~100K code symbols max
-static const size_t DEFAULT_SYMBOL_LIMIT = 100000;
+static const size_t DEFAULT_SYMBOL_LIMIT = 1000000;
 
 static size_t main_symbol_limit() {
     const char* env = getenv("ADA_MAIN_SYMBOL_LIMIT");
@@ -930,6 +888,10 @@ void AgentContext::install_hooks() {
     LOG_HOOK_INSTALL("[Agent] Main module has %zu planned hooks (symbol_limit=%zu)\n",
                      main_plan.size(), symbol_limit);
 
+    std::unordered_set<GumAddress> hooked_addresses;
+    hooked_addresses.reserve(main_plan.size());
+    size_t dedup_skipped = 0;
+
     for (const auto& entry : main_plan) {
         const auto it = main_addr.find(entry.symbol);
         num_hooks_attempted_++;
@@ -940,6 +902,12 @@ void AgentContext::install_hooks() {
                                      entry.symbol.c_str(), (unsigned long)it->second);
                 }
                 hook_results_.emplace_back(entry.symbol, it->second, entry.function_id, false);
+                continue;
+            }
+            // Skip duplicate addresses (ICF merges multiple symbols to same address)
+            if (!hooked_addresses.insert(it->second).second) {
+                hook_results_.emplace_back(entry.symbol, it->second, entry.function_id, false);
+                dedup_skipped++;
                 continue;
             }
             LOG_HOOK_INSTALL("[Agent] Hooking main symbol: %s at 0x%lx\n", entry.symbol.c_str(), (unsigned long)it->second);
@@ -972,6 +940,9 @@ void AgentContext::install_hooks() {
         } else {
             hook_results_.emplace_back(entry.symbol, 0, entry.function_id, false);
         }
+    }
+    if (ada::internal::g_agent_verbose && dedup_skipped > 0) {
+        printf("[Agent] Skipped %zu symbols due to address deduplication\n", dedup_skipped);
     }
 
     // Enumerate all modules and hook DSOs (excluding main module)
@@ -1066,9 +1037,10 @@ void AgentContext::install_hooks() {
     LOG_HOOK_INSTALL("[Agent] hooks installation complete: %u/%u hooks installed\n",
             num_hooks_successful_, num_hooks_attempted_);
 
-    // Report actual hook count (unconditional log for user visibility)
-    printf("[Agent] Installed %u hooks (attempted: %u)\n",
-           num_hooks_successful_, num_hooks_attempted_);
+    if (ada::internal::g_agent_verbose) {
+        printf("[Agent] Installed %u hooks (attempted: %u, dedup_skipped: %zu)\n",
+               num_hooks_successful_, num_hooks_attempted_, dedup_skipped);
+    }
 
     // Update control block with actual hook count (after all hooks installed)
     if (control_block_) {

@@ -54,7 +54,7 @@ if(APPLE)
     endif()
 
     add_custom_command(TARGET test_cli POST_BUILD
-        COMMAND codesign -s "${SIGNING_IDENTITY}" --entitlements "${CMAKE_SOURCE_DIR}/../utils/ada_entitlements.plist" --force $<TARGET_FILE:test_cli>
+        COMMAND codesign -s "${SIGNING_IDENTITY}" --timestamp=none --entitlements "${CMAKE_SOURCE_DIR}/../utils/ada_entitlements.plist" --force $<TARGET_FILE:test_cli>
         COMMENT "Signing test_cli with entitlements"
         VERBATIM
     )
@@ -72,7 +72,7 @@ if(APPLE)
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
     )
     add_custom_command(TARGET test_runloop POST_BUILD
-        COMMAND codesign -s "${SIGNING_IDENTITY}" --entitlements "${CMAKE_SOURCE_DIR}/../utils/ada_entitlements.plist" --force $<TARGET_FILE:test_runloop>
+        COMMAND codesign -s "${SIGNING_IDENTITY}" --timestamp=none --entitlements "${CMAKE_SOURCE_DIR}/../utils/ada_entitlements.plist" --force $<TARGET_FILE:test_runloop>
         COMMENT "Signing test_runloop with entitlements"
         VERBATIM
     )
@@ -96,7 +96,7 @@ if(APPLE)
     # Sign test_swift_simple
     add_custom_command(
         TARGET test_swift_simple POST_BUILD
-        COMMAND codesign -s "${SIGNING_IDENTITY}" --entitlements "${CMAKE_SOURCE_DIR}/../utils/ada_entitlements.plist" --force ${CMAKE_BINARY_DIR}/bin/test_swift_simple
+        COMMAND codesign -s "${SIGNING_IDENTITY}" --timestamp=none --entitlements "${CMAKE_SOURCE_DIR}/../utils/ada_entitlements.plist" --force ${CMAKE_BINARY_DIR}/bin/test_swift_simple
         COMMENT "Signing test_swift_simple with entitlements"
         VERBATIM
     )
@@ -116,7 +116,7 @@ if(APPLE)
     # Sign test_swift_runloop
     add_custom_command(
         TARGET test_swift_runloop POST_BUILD
-        COMMAND codesign -s "${SIGNING_IDENTITY}" --entitlements "${CMAKE_SOURCE_DIR}/../utils/ada_entitlements.plist" --force ${CMAKE_BINARY_DIR}/bin/test_swift_runloop
+        COMMAND codesign -s "${SIGNING_IDENTITY}" --timestamp=none --entitlements "${CMAKE_SOURCE_DIR}/../utils/ada_entitlements.plist" --force ${CMAKE_BINARY_DIR}/bin/test_swift_runloop
         COMMENT "Signing test_swift_runloop with entitlements"
         VERBATIM
     )
@@ -136,7 +136,7 @@ if(APPLE)
     # Sign test_swift_server_mock
     add_custom_command(
         TARGET test_swift_server_mock POST_BUILD
-        COMMAND codesign -s "${SIGNING_IDENTITY}" --entitlements "${CMAKE_SOURCE_DIR}/../utils/ada_entitlements.plist" --force ${CMAKE_BINARY_DIR}/bin/test_swift_server_mock
+        COMMAND codesign -s "${SIGNING_IDENTITY}" --timestamp=none --entitlements "${CMAKE_SOURCE_DIR}/../utils/ada_entitlements.plist" --force ${CMAKE_BINARY_DIR}/bin/test_swift_server_mock
         COMMENT "Signing test_swift_server_mock with entitlements"
         VERBATIM
     )
@@ -170,7 +170,7 @@ if(APPLE)
     # Sign test_swiftui_app
     add_custom_command(
         TARGET test_swiftui_app POST_BUILD
-        COMMAND codesign -s "${SIGNING_IDENTITY}" --entitlements "${CMAKE_SOURCE_DIR}/../utils/ada_entitlements.plist" --force ${CMAKE_BINARY_DIR}/bin/test_swiftui_app
+        COMMAND codesign -s "${SIGNING_IDENTITY}" --timestamp=none --entitlements "${CMAKE_SOURCE_DIR}/../utils/ada_entitlements.plist" --force ${CMAKE_BINARY_DIR}/bin/test_swiftui_app
         COMMENT "Signing test_swiftui_app with entitlements"
         VERBATIM
     )

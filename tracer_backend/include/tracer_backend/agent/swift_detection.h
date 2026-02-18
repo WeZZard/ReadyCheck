@@ -35,6 +35,11 @@ bool ada_should_skip_swift_symbols(void);
 // Returns true for: _symbolic..., symbolic...
 bool ada_is_swift_symbolic_metadata(const char* name);
 
+// Check if a Swift symbol is a compiler-generated stub that should not be hooked.
+// Covers runtime helpers, metadata accessors, witness table internals, outlined operations.
+// NOTE: Does NOT filter TW (protocol witness thunks) - these contain inlined implementations in Release.
+bool ada_is_swift_compiler_stub(const char* name);
+
 #ifdef __cplusplus
 }
 #endif

@@ -132,22 +132,22 @@ if(FRIDA_CORE_TEST)
         endif()
 
         add_custom_command(TARGET test_swift_hooks POST_BUILD
-            COMMAND codesign -s "${TEST_SIGNING_IDENTITY}" --entitlements "${CMAKE_SOURCE_DIR}/../utils/ada_entitlements.plist" --force $<TARGET_FILE:test_swift_hooks>
+            COMMAND codesign -s "${TEST_SIGNING_IDENTITY}" --timestamp=none --entitlements "${CMAKE_SOURCE_DIR}/../utils/ada_entitlements.plist" --force $<TARGET_FILE:test_swift_hooks>
             COMMENT "Signing test_swift_hooks with debugger entitlements"
             VERBATIM
         )
         add_custom_command(TARGET test_agent_loader POST_BUILD
-            COMMAND codesign -s "${TEST_SIGNING_IDENTITY}" --entitlements "${CMAKE_SOURCE_DIR}/../utils/ada_entitlements.plist" --force $<TARGET_FILE:test_agent_loader>
+            COMMAND codesign -s "${TEST_SIGNING_IDENTITY}" --timestamp=none --entitlements "${CMAKE_SOURCE_DIR}/../utils/ada_entitlements.plist" --force $<TARGET_FILE:test_agent_loader>
             COMMENT "Signing test_agent_loader with debugger entitlements"
             VERBATIM
         )
         add_custom_command(TARGET test_baseline_hooks POST_BUILD
-            COMMAND codesign -s "${TEST_SIGNING_IDENTITY}" --entitlements "${CMAKE_SOURCE_DIR}/../utils/ada_entitlements.plist" --force $<TARGET_FILE:test_baseline_hooks>
+            COMMAND codesign -s "${TEST_SIGNING_IDENTITY}" --timestamp=none --entitlements "${CMAKE_SOURCE_DIR}/../utils/ada_entitlements.plist" --force $<TARGET_FILE:test_baseline_hooks>
             COMMENT "Signing test_baseline_hooks with debugger entitlements"
             VERBATIM
         )
         add_custom_command(TARGET test_agent_registry_modes POST_BUILD
-            COMMAND codesign -s "${TEST_SIGNING_IDENTITY}" --entitlements "${CMAKE_SOURCE_DIR}/../utils/ada_entitlements.plist" --force $<TARGET_FILE:test_agent_registry_modes>
+            COMMAND codesign -s "${TEST_SIGNING_IDENTITY}" --timestamp=none --entitlements "${CMAKE_SOURCE_DIR}/../utils/ada_entitlements.plist" --force $<TARGET_FILE:test_agent_registry_modes>
             COMMENT "Signing test_agent_registry_modes with debugger entitlements"
             VERBATIM
         )
@@ -180,6 +180,31 @@ if(FRIDA_CORE_TEST)
         PROPERTIES LABELS "integration"
     )
 
+    # Swift filter invariants test (no Frida dependency, uses nm)
+    add_executable(test_swift_filter_invariants
+        test_swift_filter_invariants.cpp
+    )
+    target_include_directories(test_swift_filter_invariants
+        PRIVATE
+            ${CMAKE_SOURCE_DIR}/include
+            ${CMAKE_BINARY_DIR}  # For ada_paths.h
+    )
+    target_link_libraries(test_swift_filter_invariants
+        PRIVATE
+            test_main
+            GTest::gtest
+            GTest::gmock
+            agent_utils
+            tracer_utils
+            Threads::Threads
+    )
+    gtest_discover_tests(test_swift_filter_invariants
+        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+        DISCOVERY_MODE PRE_TEST
+        DISCOVERY_TIMEOUT 60
+        PROPERTIES LABELS "integration"
+    )
+
     # Install targets
     install(TARGETS
         test_agent_loader
@@ -187,6 +212,7 @@ if(FRIDA_CORE_TEST)
         test_agent_registry_modes
         test_swift_hooks
         test_debug_dylib_integration
+        test_swift_filter_invariants
         RUNTIME DESTINATION bin
     )
 endif()

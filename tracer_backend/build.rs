@@ -811,6 +811,11 @@ fn main() {
             "build/tests/integration/agent/test_debug_dylib_integration",
             "test/test_debug_dylib_integration",
         ),
+        // Swift filter invariants integration test
+        (
+            "build/tests/integration/agent/test_swift_filter_invariants",
+            "test/test_swift_filter_invariants",
+        ),
         // E2E benchmark workloads — CLI executables (8 total: 4 langs × 2 configs)
         ("build/bin/bench_workload_c_cli_export_sym", "test/bench_workload_c_cli_export_sym"),
         ("bin/bench_workload_c_cli_export_sym", "test/bench_workload_c_cli_export_sym"),
@@ -944,6 +949,7 @@ fn main() {
                 let status = Command::new("codesign")
                     .arg("-s")
                     .arg(&signing_identity)
+                    .arg("--timestamp=none")
                     .arg("--entitlements")
                     .arg(&entitlements_path)
                     .arg("--force")
@@ -988,6 +994,7 @@ fn main() {
                     let status = Command::new("codesign")
                         .arg("-s")
                         .arg(&signing_identity)
+                        .arg("--timestamp=none")
                         .arg("--entitlements")
                         .arg(&entitlements_path)
                         .arg("--force")
@@ -1029,6 +1036,7 @@ fn main() {
                     let status = Command::new("codesign")
                         .arg("-s")
                         .arg(&signing_identity)
+                        .arg("--timestamp=none")
                         .arg("--deep")
                         .arg("--entitlements")
                         .arg(&entitlements_path)

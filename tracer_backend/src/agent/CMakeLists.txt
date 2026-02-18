@@ -92,7 +92,7 @@ if(APPLE)
     endif()
 
     add_custom_command(TARGET frida_agent POST_BUILD
-        COMMAND codesign -s "${SIGNING_IDENTITY}" --entitlements "${CMAKE_SOURCE_DIR}/../utils/ada_entitlements.plist" --force $<TARGET_FILE:frida_agent>
+        COMMAND codesign -s "${SIGNING_IDENTITY}" --timestamp=none --entitlements "${CMAKE_SOURCE_DIR}/../utils/ada_entitlements.plist" --force $<TARGET_FILE:frida_agent>
         COMMENT "Signing frida_agent with entitlements"
         VERBATIM
     )

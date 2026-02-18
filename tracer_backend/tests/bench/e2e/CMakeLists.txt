@@ -64,7 +64,7 @@ macro(add_cli_fixture TARGET_NAME PROJECT_DIR PROJECT_FILE SCHEME DERIVED_SUFFIX
     # Codesign
     add_custom_command(
         TARGET ${TARGET_NAME} POST_BUILD
-        COMMAND codesign -s "${SIGNING_IDENTITY}" --entitlements "${CMAKE_SOURCE_DIR}/../utils/ada_entitlements.plist" --force ${CMAKE_BINARY_DIR}/bin/${OUTPUT_NAME}
+        COMMAND codesign -s "${SIGNING_IDENTITY}" --timestamp=none --entitlements "${CMAKE_SOURCE_DIR}/../utils/ada_entitlements.plist" --force ${CMAKE_BINARY_DIR}/bin/${OUTPUT_NAME}
         COMMENT "Signing ${OUTPUT_NAME} with entitlements"
         VERBATIM
     )
@@ -102,7 +102,7 @@ macro(add_app_fixture TARGET_NAME PROJECT_DIR PROJECT_FILE SCHEME CONFIGURATION 
     # Codesign with --deep for app bundles (signs embedded .debug.dylib too)
     add_custom_command(
         TARGET ${TARGET_NAME} POST_BUILD
-        COMMAND codesign -s "${SIGNING_IDENTITY}" --deep --entitlements "${CMAKE_SOURCE_DIR}/../utils/ada_entitlements.plist" --force ${CMAKE_BINARY_DIR}/bin/${OUTPUT_NAME}
+        COMMAND codesign -s "${SIGNING_IDENTITY}" --timestamp=none --deep --entitlements "${CMAKE_SOURCE_DIR}/../utils/ada_entitlements.plist" --force ${CMAKE_BINARY_DIR}/bin/${OUTPUT_NAME}
         COMMENT "Signing ${OUTPUT_NAME} with entitlements (deep)"
         VERBATIM
     )
