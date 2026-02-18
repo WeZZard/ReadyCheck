@@ -189,6 +189,11 @@ jobs:
           chmod +x utils/init_third_parties.sh
           ./utils/init_third_parties.sh
 
+      - name: Initialize Media Tools
+        run: |
+          chmod +x utils/init_media_tools.sh
+          ./utils/init_media_tools.sh
+
       - name: Import Code Signing Certificate
         env:
           CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
