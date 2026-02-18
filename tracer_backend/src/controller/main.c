@@ -311,7 +311,35 @@ int main(int argc, char* argv[]) {
     printf("Events captured: %llu\n", final_stats.events_captured);
     printf("Events dropped:  %llu\n", final_stats.events_dropped);
     printf("Bytes written:   %llu\n", final_stats.bytes_written);
-    // printf("Drain cycles:    %llu\n", final_stats.drain_cycles); // Field removed
+    printf("Hooks installed: %u\n", final_stats.hooks_installed);
+    if (final_stats.fallback_events > 0) {
+        printf("Fallback events: %llu\n", final_stats.fallback_events);
+    }
+
+    // Write tracer_stats.json to output_dir for benchmark harness consumption
+    {
+        char stats_path[4096];
+        snprintf(stats_path, sizeof(stats_path), "%s/tracer_stats.json", output_dir);
+        FILE* stats_file = fopen(stats_path, "w");
+        if (stats_file) {
+            fprintf(stats_file,
+                "{\n"
+                "  \"events_captured\": %llu,\n"
+                "  \"events_dropped\": %llu,\n"
+                "  \"bytes_written\": %llu,\n"
+                "  \"hooks_installed\": %u,\n"
+                "  \"fallback_events\": %llu\n"
+                "}\n",
+                final_stats.events_captured,
+                final_stats.events_dropped,
+                final_stats.bytes_written,
+                final_stats.hooks_installed,
+                final_stats.fallback_events);
+            fclose(stats_file);
+        } else {
+            fprintf(stderr, "Warning: could not write %s\n", stats_path);
+        }
+    }
     
     // Cleanup
 cleanup:

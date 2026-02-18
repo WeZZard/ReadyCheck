@@ -197,8 +197,8 @@ fn main() {
 
     // Copy binaries
     let binaries = vec![
-        ("bin/tracer_poc", "bin/tracer_poc"),
-        ("out/bin/tracer_poc", "bin/tracer_poc"),
+        ("bin/tracer", "bin/tracer"),
+        ("out/bin/tracer", "bin/tracer"),
         ("build/bin/test_cli", "test/test_cli"),
         ("build/bin/test_runloop", "test/test_runloop"),
         ("bin/test_cli", "test/test_cli"),
@@ -811,6 +811,23 @@ fn main() {
             "build/tests/integration/agent/test_debug_dylib_integration",
             "test/test_debug_dylib_integration",
         ),
+        // E2E benchmark workloads — CLI executables (8 total: 4 langs × 2 configs)
+        ("build/bin/bench_workload_c_cli_export_sym", "test/bench_workload_c_cli_export_sym"),
+        ("bin/bench_workload_c_cli_export_sym", "test/bench_workload_c_cli_export_sym"),
+        ("build/bin/bench_workload_c_cli_no_export_sym", "test/bench_workload_c_cli_no_export_sym"),
+        ("bin/bench_workload_c_cli_no_export_sym", "test/bench_workload_c_cli_no_export_sym"),
+        ("build/bin/bench_workload_cpp_cli_export_sym", "test/bench_workload_cpp_cli_export_sym"),
+        ("bin/bench_workload_cpp_cli_export_sym", "test/bench_workload_cpp_cli_export_sym"),
+        ("build/bin/bench_workload_cpp_cli_no_export_sym", "test/bench_workload_cpp_cli_no_export_sym"),
+        ("bin/bench_workload_cpp_cli_no_export_sym", "test/bench_workload_cpp_cli_no_export_sym"),
+        ("build/bin/bench_workload_objc_cli_export_sym", "test/bench_workload_objc_cli_export_sym"),
+        ("bin/bench_workload_objc_cli_export_sym", "test/bench_workload_objc_cli_export_sym"),
+        ("build/bin/bench_workload_objc_cli_no_export_sym", "test/bench_workload_objc_cli_no_export_sym"),
+        ("bin/bench_workload_objc_cli_no_export_sym", "test/bench_workload_objc_cli_no_export_sym"),
+        ("build/bin/bench_workload_swift_cli_export_sym", "test/bench_workload_swift_cli_export_sym"),
+        ("bin/bench_workload_swift_cli_export_sym", "test/bench_workload_swift_cli_export_sym"),
+        ("build/bin/bench_workload_swift_cli_no_export_sym", "test/bench_workload_swift_cli_no_export_sym"),
+        ("bin/bench_workload_swift_cli_no_export_sym", "test/bench_workload_swift_cli_no_export_sym"),
     ];
 
     for (src_path, dst_path) in binaries {
@@ -821,6 +838,53 @@ fn main() {
                 println!("cargo:warning=Failed to copy {}: {}", src_path, e);
             } else {
                 println!("cargo:info=Copied {} to {}", src_path, dst_file.display());
+            }
+        }
+    }
+
+    // Copy E2E benchmark app bundles (12 total: 4 langs × 3 app configs)
+    // App bundles are directories, not single files — need recursive copy.
+    let app_bundles = [
+        // C app bundles
+        ("build/bin/bench_workload_c_app_debug.app", "test/bench_workload_c_app_debug.app"),
+        ("bin/bench_workload_c_app_debug.app", "test/bench_workload_c_app_debug.app"),
+        ("build/bin/bench_workload_c_app_debug_dylib.app", "test/bench_workload_c_app_debug_dylib.app"),
+        ("bin/bench_workload_c_app_debug_dylib.app", "test/bench_workload_c_app_debug_dylib.app"),
+        ("build/bin/bench_workload_c_app_release.app", "test/bench_workload_c_app_release.app"),
+        ("bin/bench_workload_c_app_release.app", "test/bench_workload_c_app_release.app"),
+        // C++ app bundles
+        ("build/bin/bench_workload_cpp_app_debug.app", "test/bench_workload_cpp_app_debug.app"),
+        ("bin/bench_workload_cpp_app_debug.app", "test/bench_workload_cpp_app_debug.app"),
+        ("build/bin/bench_workload_cpp_app_debug_dylib.app", "test/bench_workload_cpp_app_debug_dylib.app"),
+        ("bin/bench_workload_cpp_app_debug_dylib.app", "test/bench_workload_cpp_app_debug_dylib.app"),
+        ("build/bin/bench_workload_cpp_app_release.app", "test/bench_workload_cpp_app_release.app"),
+        ("bin/bench_workload_cpp_app_release.app", "test/bench_workload_cpp_app_release.app"),
+        // ObjC app bundles
+        ("build/bin/bench_workload_objc_app_debug.app", "test/bench_workload_objc_app_debug.app"),
+        ("bin/bench_workload_objc_app_debug.app", "test/bench_workload_objc_app_debug.app"),
+        ("build/bin/bench_workload_objc_app_debug_dylib.app", "test/bench_workload_objc_app_debug_dylib.app"),
+        ("bin/bench_workload_objc_app_debug_dylib.app", "test/bench_workload_objc_app_debug_dylib.app"),
+        ("build/bin/bench_workload_objc_app_release.app", "test/bench_workload_objc_app_release.app"),
+        ("bin/bench_workload_objc_app_release.app", "test/bench_workload_objc_app_release.app"),
+        // Swift app bundles
+        ("build/bin/bench_workload_swift_app_debug.app", "test/bench_workload_swift_app_debug.app"),
+        ("bin/bench_workload_swift_app_debug.app", "test/bench_workload_swift_app_debug.app"),
+        ("build/bin/bench_workload_swift_app_debug_dylib.app", "test/bench_workload_swift_app_debug_dylib.app"),
+        ("bin/bench_workload_swift_app_debug_dylib.app", "test/bench_workload_swift_app_debug_dylib.app"),
+        ("build/bin/bench_workload_swift_app_release.app", "test/bench_workload_swift_app_release.app"),
+        ("bin/bench_workload_swift_app_release.app", "test/bench_workload_swift_app_release.app"),
+    ];
+
+    for (src_path, dst_path) in app_bundles {
+        let src = dst.join(src_path);
+        let dst_dir = predictable_dir.join(dst_path);
+        if src.exists() && src.is_dir() {
+            // Remove old copy if it exists
+            let _ = fs::remove_dir_all(&dst_dir);
+            if let Err(e) = copy_dir_recursive(&src, &dst_dir) {
+                println!("cargo:warning=Failed to copy app bundle {}: {}", src_path, e);
+            } else {
+                println!("cargo:info=Copied app bundle {} to {}", src_path, dst_dir.display());
             }
         }
     }
@@ -899,15 +963,26 @@ fn main() {
                 }
             }
             
-            // Sign test binaries (test_cli, test_runloop, and Swift fixtures)
-            for test_binary in [
+            // Sign test binaries (test_cli, test_runloop, Swift fixtures, and E2E bench CLI executables)
+            let test_binaries_to_sign = [
+                "bin/tracer",
                 "test/test_cli",
                 "test/test_runloop",
                 "test/test_swift_simple",
                 "test/test_swift_runloop",
                 "test/test_swift_server_mock",
                 "test/test_swiftui_app",
-            ].iter() {
+                // E2E benchmark CLI executables (8 total)
+                "test/bench_workload_c_cli_export_sym",
+                "test/bench_workload_c_cli_no_export_sym",
+                "test/bench_workload_cpp_cli_export_sym",
+                "test/bench_workload_cpp_cli_no_export_sym",
+                "test/bench_workload_objc_cli_export_sym",
+                "test/bench_workload_objc_cli_no_export_sym",
+                "test/bench_workload_swift_cli_export_sym",
+                "test/bench_workload_swift_cli_no_export_sym",
+            ];
+            for test_binary in test_binaries_to_sign.iter() {
                 let test_path = predictable_dir.join(test_binary);
                 if test_path.exists() {
                     let status = Command::new("codesign")
@@ -918,7 +993,7 @@ fn main() {
                         .arg("--force")
                         .arg(&test_path)
                         .status();
-                    
+
                     match status {
                         Ok(s) if s.success() => {
                             println!("cargo:info=Signed {} with entitlements", test_binary);
@@ -928,6 +1003,48 @@ fn main() {
                         }
                         Err(e) => {
                             println!("cargo:warning=Failed to execute codesign for {}: {}", test_binary, e);
+                        }
+                    }
+                }
+            }
+
+            // Sign E2E benchmark app bundles with --deep (12 total)
+            let app_bundles_to_sign = [
+                "test/bench_workload_c_app_debug.app",
+                "test/bench_workload_c_app_debug_dylib.app",
+                "test/bench_workload_c_app_release.app",
+                "test/bench_workload_cpp_app_debug.app",
+                "test/bench_workload_cpp_app_debug_dylib.app",
+                "test/bench_workload_cpp_app_release.app",
+                "test/bench_workload_objc_app_debug.app",
+                "test/bench_workload_objc_app_debug_dylib.app",
+                "test/bench_workload_objc_app_release.app",
+                "test/bench_workload_swift_app_debug.app",
+                "test/bench_workload_swift_app_debug_dylib.app",
+                "test/bench_workload_swift_app_release.app",
+            ];
+            for app_bundle in app_bundles_to_sign.iter() {
+                let bundle_path = predictable_dir.join(app_bundle);
+                if bundle_path.exists() && bundle_path.is_dir() {
+                    let status = Command::new("codesign")
+                        .arg("-s")
+                        .arg(&signing_identity)
+                        .arg("--deep")
+                        .arg("--entitlements")
+                        .arg(&entitlements_path)
+                        .arg("--force")
+                        .arg(&bundle_path)
+                        .status();
+
+                    match status {
+                        Ok(s) if s.success() => {
+                            println!("cargo:info=Signed {} with entitlements (deep)", app_bundle);
+                        }
+                        Ok(s) => {
+                            println!("cargo:warning=Failed to sign {}: exit code {:?}", app_bundle, s.code());
+                        }
+                        Err(e) => {
+                            println!("cargo:warning=Failed to execute codesign for {}: {}", app_bundle, e);
                         }
                     }
                 }
@@ -955,6 +1072,22 @@ fn main() {
 
     // Generate bindings (optional - for better Rust integration)
     generate_bindings(&out_dir);
+}
+
+/// Recursively copy a directory tree (used for .app bundles).
+fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    fs::create_dir_all(dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+        if src_path.is_dir() {
+            copy_dir_recursive(&src_path, &dst_path)?;
+        } else {
+            fs::copy(&src_path, &dst_path)?;
+        }
+    }
+    Ok(())
 }
 
 fn generate_bindings(out_dir: &Path) {

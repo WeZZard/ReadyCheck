@@ -36,9 +36,9 @@ pub mod ffi {
             pub events_captured: u64,
             pub events_dropped: u64,
             pub bytes_written: u64,
-            pub drain_cycles: u64,
-            pub cpu_overhead_percent: f64,
-            pub memory_usage_mb: f64,
+            pub active_threads: u32,
+            pub hooks_installed: u32,
+            pub fallback_events: u64,
         }
 
         #[repr(C)]

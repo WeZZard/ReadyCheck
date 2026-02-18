@@ -1346,7 +1346,11 @@ TracerStats FridaController::get_stats() const {
 
         result.events_captured = dm.total_events_drained;
         result.bytes_written = dm.total_bytes_drained;
-        // Note: active_threads and hooks_installed would need additional tracking
+    }
+
+    if (control_block_) {
+        result.hooks_installed = __atomic_load_n(&control_block_->actual_hook_count, __ATOMIC_ACQUIRE);
+        result.fallback_events = cb_get_fallback_events(const_cast<ControlBlock*>(control_block_));
     }
 
     return result;

@@ -157,11 +157,11 @@ fn main() -> Result<()> {
         if tick % 5 == 0 {
             let stats = controller.get_stats();
             println!(
-                "[Stats] Events: {}, Dropped: {}, Bytes: {}, Cycles: {}",
+                "[Stats] Events: {}, Dropped: {}, Bytes: {}, Hooks: {}",
                 stats.events_captured,
                 stats.events_dropped,
                 stats.bytes_written,
-                stats.drain_cycles
+                stats.hooks_installed
             );
         }
 
@@ -183,7 +183,24 @@ fn main() -> Result<()> {
     println!("Events captured: {}", final_stats.events_captured);
     println!("Events dropped:  {}", final_stats.events_dropped);
     println!("Bytes written:   {}", final_stats.bytes_written);
-    println!("Drain cycles:    {}", final_stats.drain_cycles);
+    println!("Hooks installed: {}", final_stats.hooks_installed);
+    if final_stats.fallback_events > 0 {
+        println!("Fallback events: {}", final_stats.fallback_events);
+    }
+
+    // Write tracer_stats.json for benchmark harness consumption
+    let stats_json = format!(
+        "{{\n  \"events_captured\": {},\n  \"events_dropped\": {},\n  \"bytes_written\": {},\n  \"hooks_installed\": {},\n  \"fallback_events\": {}\n}}\n",
+        final_stats.events_captured,
+        final_stats.events_dropped,
+        final_stats.bytes_written,
+        final_stats.hooks_installed,
+        final_stats.fallback_events
+    );
+    let stats_path = output_dir.join("tracer_stats.json");
+    if let Err(e) = std::fs::write(&stats_path, &stats_json) {
+        eprintln!("Warning: could not write {}: {}", stats_path.display(), e);
+    }
 
     // Find and display session directory
     if let Ok(entries) = std::fs::read_dir(&output_dir) {

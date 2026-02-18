@@ -180,6 +180,7 @@ int tracer_get_stats(TracerHandle* tracer, TracerStats* stats) {
     stats->bytes_written = controller_stats.bytes_written;
     stats->active_threads = controller_stats.active_threads;
     stats->hooks_installed = controller_stats.hooks_installed;
+    stats->fallback_events = controller_stats.fallback_events;
     
     return 0;
 }

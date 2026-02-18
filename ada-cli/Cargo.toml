@@ -52,9 +52,6 @@ tracer_backend = { path = "../tracer_backend" }
 cc = "1.0"
 tracer_backend = { path = "../tracer_backend" }
 
-[dev-dependencies]
-tempfile = "3.10"
-
 [features]
 default = []
 async-query = ["tokio"]

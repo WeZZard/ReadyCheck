@@ -1,0 +1,218 @@
+# E2E benchmark thresholds for CI regression detection
+# Convention: [thresholds.{platform}.{lang}.{config}]
+#
+# NOTE: Overhead ratios are high because these are sub-10ms microbenchmarks
+# with ~1M function calls being traced by Frida. Real applications running for
+# seconds would show ratios close to 1.x. These thresholds catch regressions
+# relative to our baseline, not absolute performance targets.
+#
+# Calibrated 2026-02-18 (post compiler-barrier fix) from full 20-config matrix:
+#
+# The compiler-barrier fix prevents LICM from hoisting loop-invariant function
+# calls out of benchmark loops, ensuring all declared calls actually execute.
+# This means per-call overhead now reflects the true Frida interception cost
+# rather than an artificially low number from fewer actual calls.
+#
+#   CLI configs (4 langs x 2):
+#     C     export_sym:      ~7x, 595ns/call,   75MB trace, 217MB mem
+#     C     no_export_sym:   ~7x, 449ns/call,  164MB trace, 218MB mem
+#     C++   export_sym:      ~6x, 371ns/call,  416MB trace, 218MB mem
+#     C++   no_export_sym:   ~6x, 371ns/call,  409MB trace, 218MB mem
+#     ObjC  export_sym:      ~7x, 398ns/call,  449MB trace, 218MB mem
+#     ObjC  no_export_sym:   ~7x, 394ns/call,  460MB trace, 218MB mem
+#     Swift export_sym:     ~12x, 670ns/call, 1654MB trace, 218MB mem
+#     Swift no_export_sym:  ~12x, 669ns/call, 1702MB trace, 218MB mem
+#
+#   App bundle configs (4 langs x 3):
+#     C     app_debug:       ~8x, 407ns/call,   99MB trace, 159MB mem
+#     C     app_debug_dylib: ~7x, 391ns/call,  436MB trace, 159MB mem
+#     C     app_release:     ~7x, 368ns/call,  423MB trace, 159MB mem
+#     C++   app_debug:       ~7x, 380ns/call,  451MB trace, 159MB mem
+#     C++   app_debug_dylib: ~7x, 377ns/call,  445MB trace, 159MB mem
+#     C++   app_release:     ~7x, 371ns/call,  426MB trace, 159MB mem
+#     ObjC  app_debug:       ~7x, 382ns/call,  470MB trace, 159MB mem
+#     ObjC  app_debug_dylib: ~7x, 370ns/call,  434MB trace, 159MB mem
+#     ObjC  app_release:     ~8x, 395ns/call,  453MB trace, 159MB mem
+#     Swift app_debug:       ~6x, 719ns/call, 2235MB trace, 136MB mem
+#     Swift app_debug_dylib: ~6x, 766ns/call, 2184MB trace, 136MB mem
+#     Swift app_release:    ~12x, 646ns/call, 1709MB trace, 136MB mem
+#
+# overhead_ratio is informational only (not a pass/fail threshold).
+# Thresholds set at ~3x measured to catch regressions while allowing variance.
+
+[workload]
+outer = 1000
+inner = 1000
+depth = 15
+threads = 4
+thread_iterations = 10000
+warmup_runs = 2
+measure_runs = 5
+
+# =============================================================================
+# C thresholds
+# =============================================================================
+
+# CLI with exported symbols (enumerate_exports fast path)
+# Measured: 595ns/call, 217MB mem, 75MB trace
+[thresholds.macos.c.cli_export_sym]
+max_overhead_ratio = 1000.0
+max_per_call_ns = 1800.0
+max_memory_overhead_kb = 307200
+max_trace_bytes_mb = 300
+
+# CLI without exported symbols (enumerate_symbols slow path)
+# Measured: 449ns/call, 218MB mem, 164MB trace
+[thresholds.macos.c.cli_no_export_sym]
+max_overhead_ratio = 1200.0
+max_per_call_ns = 1350.0
+max_memory_overhead_kb = 307200
+max_trace_bytes_mb = 500
+
+# App bundle Debug (no debug dylib)
+# Measured: 407ns/call, 159MB mem, 99MB trace
+[thresholds.macos.c.app_debug]
+max_overhead_ratio = 50.0
+max_per_call_ns = 1300.0
+max_memory_overhead_kb = 512000
+max_trace_bytes_mb = 650
+
+# App bundle Debug with ENABLE_DEBUG_DYLIB=YES
+# Measured: 391ns/call, 159MB mem, 436MB trace
+[thresholds.macos.c.app_debug_dylib]
+max_overhead_ratio = 50.0
+max_per_call_ns = 1300.0
+max_memory_overhead_kb = 512000
+max_trace_bytes_mb = 1300
+
+# App bundle Release
+# Measured: 368ns/call, 159MB mem, 423MB trace
+[thresholds.macos.c.app_release]
+max_overhead_ratio = 50.0
+max_per_call_ns = 1100.0
+max_memory_overhead_kb = 512000
+max_trace_bytes_mb = 1300
+
+# =============================================================================
+# C++ thresholds
+# =============================================================================
+
+# Measured: 371ns/call, 218MB mem, 416MB trace
+[thresholds.macos.cpp.cli_export_sym]
+max_overhead_ratio = 500.0
+max_per_call_ns = 1200.0
+max_memory_overhead_kb = 307200
+max_trace_bytes_mb = 1300
+
+# Measured: 371ns/call, 218MB mem, 409MB trace
+[thresholds.macos.cpp.cli_no_export_sym]
+max_overhead_ratio = 500.0
+max_per_call_ns = 1200.0
+max_memory_overhead_kb = 307200
+max_trace_bytes_mb = 1300
+
+# Measured: 380ns/call, 159MB mem, 451MB trace
+[thresholds.macos.cpp.app_debug]
+max_overhead_ratio = 50.0
+max_per_call_ns = 1200.0
+max_memory_overhead_kb = 512000
+max_trace_bytes_mb = 1400
+
+# Measured: 377ns/call, 159MB mem, 445MB trace
+[thresholds.macos.cpp.app_debug_dylib]
+max_overhead_ratio = 50.0
+max_per_call_ns = 1200.0
+max_memory_overhead_kb = 512000
+max_trace_bytes_mb = 1400
+
+# Measured: 371ns/call, 159MB mem, 426MB trace
+[thresholds.macos.cpp.app_release]
+max_overhead_ratio = 50.0
+max_per_call_ns = 1200.0
+max_memory_overhead_kb = 512000
+max_trace_bytes_mb = 1300
+
+# =============================================================================
+# Objective-C thresholds
+# =============================================================================
+
+# Measured: 398ns/call, 218MB mem, 449MB trace
+[thresholds.macos.objc.cli_export_sym]
+max_overhead_ratio = 500.0
+max_per_call_ns = 1200.0
+max_memory_overhead_kb = 307200
+max_trace_bytes_mb = 1350
+
+# Measured: 394ns/call, 218MB mem, 460MB trace
+[thresholds.macos.objc.cli_no_export_sym]
+max_overhead_ratio = 500.0
+max_per_call_ns = 1200.0
+max_memory_overhead_kb = 307200
+max_trace_bytes_mb = 1400
+
+# Measured: 382ns/call, 159MB mem, 470MB trace
+[thresholds.macos.objc.app_debug]
+max_overhead_ratio = 50.0
+max_per_call_ns = 1200.0
+max_memory_overhead_kb = 512000
+max_trace_bytes_mb = 1400
+
+# Measured: 370ns/call, 159MB mem, 434MB trace
+[thresholds.macos.objc.app_debug_dylib]
+max_overhead_ratio = 50.0
+max_per_call_ns = 1200.0
+max_memory_overhead_kb = 512000
+max_trace_bytes_mb = 1300
+
+# Measured: 395ns/call, 159MB mem, 453MB trace
+[thresholds.macos.objc.app_release]
+max_overhead_ratio = 50.0
+max_per_call_ns = 1200.0
+max_memory_overhead_kb = 512000
+max_trace_bytes_mb = 1400
+
+# =============================================================================
+# Swift thresholds
+# =============================================================================
+
+# Measured: 670ns/call, 218MB mem, 1654MB trace
+[thresholds.macos.swift.cli_export_sym]
+max_overhead_ratio = 1000.0
+max_per_call_ns = 2000.0
+max_memory_overhead_kb = 307200
+max_trace_bytes_mb = 5000
+
+# Measured: 669ns/call, 218MB mem, 1702MB trace
+[thresholds.macos.swift.cli_no_export_sym]
+max_overhead_ratio = 1000.0
+max_per_call_ns = 2000.0
+max_memory_overhead_kb = 307200
+max_trace_bytes_mb = 5100
+
+# Measured: 719ns/call, 136MB mem, 2235MB trace
+[thresholds.macos.swift.app_debug]
+max_overhead_ratio = 30.0
+max_per_call_ns = 2500.0
+max_memory_overhead_kb = 512000
+max_trace_bytes_mb = 7000
+
+# Measured: 766ns/call, 136MB mem, 2184MB trace
+[thresholds.macos.swift.app_debug_dylib]
+max_overhead_ratio = 30.0
+max_per_call_ns = 2500.0
+max_memory_overhead_kb = 512000
+max_trace_bytes_mb = 7000
+
+# Measured: 646ns/call, 136MB mem, 1709MB trace
+[thresholds.macos.swift.app_release]
+max_overhead_ratio = 30.0
+max_per_call_ns = 2000.0
+max_memory_overhead_kb = 512000
+max_trace_bytes_mb = 5200
+
+# Future: [thresholds.linux.c.cli_export_sym], etc.
+
+[ci_overrides]
+overhead_ratio_multiplier = 1.5
+per_call_ns_multiplier = 2.0
+memory_multiplier = 2.0

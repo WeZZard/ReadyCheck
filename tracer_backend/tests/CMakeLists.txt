@@ -212,6 +212,7 @@ add_subdirectory(bench/controller)
 add_subdirectory(bench/agent)
 add_subdirectory(bench/registry)
 add_subdirectory(bench/backpressure)
+add_subdirectory(bench/e2e)
 
 # ===========================================
 # Custom Targets for Running Tests

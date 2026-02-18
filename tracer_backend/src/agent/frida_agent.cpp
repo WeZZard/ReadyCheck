@@ -632,13 +632,11 @@ static gboolean collect_symbols_cb(const GumSymbolDetails* details, gpointer use
     }
 
     // Filter by symbol type - only accept function/code symbols
-    // This filters out ~57K data symbols (S/s/d/b in nm output)
 #ifdef __APPLE__
-    // Mach-O: section filtering is primary, but skip metadata-type symbols
-    // GUM_SYMBOL_SECTION = opaque symbol from section (data, not function)
-    // GUM_SYMBOL_UNKNOWN = unclassified symbol (skip to be safe)
-    if (details->type == GUM_SYMBOL_SECTION ||
-        details->type == GUM_SYMBOL_UNKNOWN) {
+    // Mach-O: N_SECT (GUM_SYMBOL_SECTION) covers ALL symbols defined in sections
+    // (code, data, constants). We accept them and rely on is_text_section() below
+    // to distinguish code from data. Skip all other types (undefined, absolute, etc.).
+    if (details->type != GUM_SYMBOL_SECTION) {
         return TRUE;
     }
 #else

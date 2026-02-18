@@ -176,6 +176,7 @@ typedef struct {
     uint64_t bytes_written;
     uint32_t active_threads;
     uint32_t hooks_installed;
+    uint64_t fallback_events;
 } TracerStats;
 #endif
 
