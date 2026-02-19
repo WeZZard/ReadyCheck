@@ -28,7 +28,7 @@ env:
 jobs:
   analyze:
     name: Analyze Changes
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     outputs:
       version_type: ${{ steps.final-version.outputs.version_type }}
       release_notes: ${{ steps.final-version.outputs.release_notes }}

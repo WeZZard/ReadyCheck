@@ -22,7 +22,7 @@ permissions:
 jobs:
   changed-files:
     name: Detect Changed Files
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     outputs:
       has_rust: ${{ steps.changes.outputs.rust }}
       has_cpp: ${{ steps.changes.outputs.cpp }}
@@ -68,7 +68,7 @@ jobs:
   incremental-coverage:
     name: Incremental Coverage Check
     needs: changed-files
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     
     steps:
     - name: Checkout PR branch
@@ -79,9 +79,8 @@ jobs:
     - name: Setup environment
       run: |
         # Install LLVM
-        sudo apt-get update
-        sudo apt-get install -y clang-17 llvm-17 llvm-17-dev
-        echo "/usr/lib/llvm-17/bin" >> $GITHUB_PATH
+        brew install llvm
+        echo "/opt/homebrew/opt/llvm/bin" >> $GITHUB_PATH
         
         # Install Rust
         curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
@@ -193,7 +192,7 @@ jobs:
 
   security-scan:
     name: Security Scan
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     
     steps:
     - name: Checkout code
@@ -235,7 +234,7 @@ jobs:
 
   lint-and-format:
     name: Lint and Format Check
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     
     steps:
     - name: Checkout code
@@ -254,10 +253,11 @@ jobs:
 
     - name: Check C/C++ formatting
       run: |
-        # Install clang-format
-        sudo apt-get update
-        sudo apt-get install -y clang-format-17
-        
+        # Install clang-format (included with LLVM from Homebrew)
+        brew install llvm
+        echo "/opt/homebrew/opt/llvm/bin" >> $GITHUB_PATH
+        export PATH="/opt/homebrew/opt/llvm/bin:$PATH"
+
         # Check formatting (informational only for now)
         find tracer_backend -name "*.c" -o -name "*.cpp" -o -name "*.h" -o -name "*.hpp" | \
-          xargs clang-format-17 --dry-run --Werror || true
+          xargs clang-format --dry-run --Werror || true

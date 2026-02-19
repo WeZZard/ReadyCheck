@@ -8,10 +8,7 @@ on:
 
 jobs:
   coverage:
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: macos-latest
     
     steps:
     - uses: actions/checkout@v3
@@ -27,12 +24,7 @@ jobs:
     
     - name: Install system dependencies
       run: |
-        if [[ "${{ runner.os }}" == "Linux" ]]; then
-          sudo apt-get update
-          sudo apt-get install -y clang llvm lcov
-        elif [[ "${{ runner.os }}" == "macOS" ]]; then
-          brew install llvm lcov
-        fi
+        brew install llvm lcov
     
     - name: Install Rust coverage tools
       run: |
@@ -54,12 +46,10 @@ jobs:
     
     - name: Configure code signing for CI
       run: |
-        if [[ "${{ runner.os }}" == "macOS" ]]; then
-          # For CI, we use ad-hoc signing with entitlements
-          # Production CI should use: ${{ secrets.APPLE_DEVELOPER_ID }}
-          echo "APPLE_DEVELOPER_ID=-" >> $GITHUB_ENV
-          echo "Note: CI using ad-hoc signing. Production should use secrets.APPLE_DEVELOPER_ID"
-        fi
+        # For CI, we use ad-hoc signing with entitlements
+        # Production CI should use: ${{ secrets.APPLE_DEVELOPER_ID }}
+        echo "APPLE_DEVELOPER_ID=-" >> $GITHUB_ENV
+        echo "Note: CI using ad-hoc signing. Production should use secrets.APPLE_DEVELOPER_ID"
     
     - name: Run full coverage
       run: |

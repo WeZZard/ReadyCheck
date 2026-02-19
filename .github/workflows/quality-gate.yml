@@ -24,25 +24,8 @@ env:
 
 jobs:
   quality-gate:
-    name: Quality Gate - ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-        include:
-          - os: ubuntu-latest
-            llvm_version: 17
-            install_cmd: |
-              sudo apt-get update
-              sudo apt-get install -y clang-17 llvm-17 llvm-17-dev
-              echo "/usr/lib/llvm-17/bin" >> $GITHUB_PATH
-          - os: macos-latest
-            llvm_version: latest
-            install_cmd: |
-              brew install llvm
-              echo "/opt/homebrew/opt/llvm/bin" >> $GITHUB_PATH
+    name: Quality Gate
+    runs-on: macos-latest
 
     steps:
     - name: Checkout code
@@ -51,7 +34,9 @@ jobs:
         fetch-depth: 0  # Full history for coverage delta analysis
 
     - name: Install LLVM and Clang
-      run: ${{ matrix.install_cmd }}
+      run: |
+        brew install llvm
+        echo "/opt/homebrew/opt/llvm/bin" >> $GITHUB_PATH
 
     - name: Setup Rust toolchain
       uses: dtolnay/rust-toolchain@stable
@@ -106,7 +91,7 @@ jobs:
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: coverage-reports-${{ matrix.os }}
+        name: coverage-reports
         path: |
           target/coverage/reports/
           target/coverage/*.txt
@@ -115,12 +100,11 @@ jobs:
           quality_gate.log
 
     - name: Upload coverage to Codecov
-      if: matrix.os == 'ubuntu-latest'
       uses: codecov/codecov-action@v4
       with:
         files: ./target/coverage/rust/lcov.info,./target/coverage/cpp/lcov.info
-        flags: unittests,${{ matrix.os }}
-        name: codecov-${{ matrix.os }}
+        flags: unittests,macos
+        name: codecov-macos
         fail_ci_if_error: false
         verbose: true
         token: ${{ secrets.CODECOV_TOKEN }}
@@ -129,7 +113,7 @@ jobs:
       if: always()
       run: |
         cat >> $GITHUB_STEP_SUMMARY << EOF
-        ## 📊 Quality Gate Report - ${{ matrix.os }}
+        ## 📊 Quality Gate Report
         
         ### Integration Score
         **${{ steps.quality_gate.outputs.integration_score }}** (100/100 required)
@@ -214,7 +198,7 @@ jobs:
   # Separate job for cross-platform validation
   validate-scripts:
     name: Validate Scripts
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     
     steps:
     - name: Checkout code
