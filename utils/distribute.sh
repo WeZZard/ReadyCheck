@@ -192,6 +192,14 @@ EOF
         chmod +x "$OUTPUT_DIR/bin/ada-capture-daemon"
     fi
 
+    # Ensure media tools are available (downloads/builds if missing)
+    if [[ ! -f "$PROJECT_ROOT/third_parties/ffmpeg-bin/ffmpeg" ]] || \
+       [[ ! -f "$PROJECT_ROOT/third_parties/whisper-bin/whisper-cli" ]] || \
+       [[ ! -f "$PROJECT_ROOT/third_parties/whisper-models/ggml-tiny.bin" ]]; then
+        echo -e "${BLUE}Initializing media tools...${NC}"
+        "$SCRIPT_DIR/init_media_tools.sh"
+    fi
+
     # Copy bundled media tools (ffmpeg, ffprobe, whisper-cli) if available
     for tool in ffmpeg ffprobe; do
         if [[ -f "$PROJECT_ROOT/third_parties/ffmpeg-bin/$tool" ]]; then
