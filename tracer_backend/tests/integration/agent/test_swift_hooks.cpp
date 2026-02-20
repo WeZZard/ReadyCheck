@@ -7,6 +7,7 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <cerrno>
 #include <sys/wait.h>
 #include <signal.h>
 #include <unistd.h>
@@ -28,6 +29,19 @@ protected:
     static constexpr int kMaxWaitSeconds = 30;
     static constexpr int kPollIntervalMs = 50;
 
+    static bool IsProcessAlive(pid_t pid) {
+        if (pid <= 0) {
+            return false;
+        }
+
+        if (kill(pid, 0) == 0) {
+            return true;
+        }
+
+        // EPERM means the process exists but we lack permissions.
+        return errno == EPERM;
+    }
+
     void SetUp() override {
         output_dir_ = "/tmp/ada_swift_test_" + std::to_string(time(nullptr));
         std::filesystem::create_directories(output_dir_);
@@ -41,9 +55,21 @@ protected:
 
     void TearDown() override {
         if (pid_ > 0) {
-            kill(static_cast<pid_t>(pid_), SIGTERM);
+            pid_t pid = static_cast<pid_t>(pid_);
+            kill(pid, SIGTERM);
+
+            // Best effort reap if this is a child process.
             int status;
-            waitpid(static_cast<pid_t>(pid_), &status, WNOHANG);
+            (void)waitpid(pid, &status, WNOHANG);
+
+            // Frida-spawned processes are not guaranteed to be reaped by waitpid().
+            auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(500);
+            while (std::chrono::steady_clock::now() < deadline && IsProcessAlive(pid)) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(kPollIntervalMs));
+            }
+            if (IsProcessAlive(pid)) {
+                kill(pid, SIGKILL);
+            }
             pid_ = 0;
         }
         if (controller_) {
@@ -75,24 +101,43 @@ protected:
     int WaitForProcessExit(int timeout_seconds = kMaxWaitSeconds) {
         if (pid_ == 0) return -1;
 
+        const pid_t pid = static_cast<pid_t>(pid_);
         auto deadline = std::chrono::steady_clock::now() +
                         std::chrono::seconds(timeout_seconds);
+        bool fallback_to_liveness_poll = false;
 
         while (std::chrono::steady_clock::now() < deadline) {
-            int status;
-            pid_t result = waitpid(static_cast<pid_t>(pid_), &status, WNOHANG);
+            if (!fallback_to_liveness_poll) {
+                int status;
+                errno = 0;
+                pid_t result = waitpid(pid, &status, WNOHANG);
 
-            if (result == static_cast<pid_t>(pid_)) {
-                pid_ = 0;
-                if (WIFEXITED(status)) {
-                    return WEXITSTATUS(status);
-                } else if (WIFSIGNALED(status)) {
-                    return -WTERMSIG(status);
+                if (result == pid) {
+                    pid_ = 0;
+                    if (WIFEXITED(status)) {
+                        return WEXITSTATUS(status);
+                    } else if (WIFSIGNALED(status)) {
+                        return -WTERMSIG(status);
+                    }
+                    return -1;
+                } else if (result == -1) {
+                    if (errno == EINTR) {
+                        continue;
+                    }
+                    if (errno == ECHILD) {
+                        // Frida can spawn processes that are not waitpid()-reapable by this test.
+                        fallback_to_liveness_poll = true;
+                    } else {
+                        pid_ = 0;
+                        return -1;
+                    }
                 }
-                return -1;
-            } else if (result == -1) {
+            }
+
+            if (fallback_to_liveness_poll && !IsProcessAlive(pid)) {
                 pid_ = 0;
-                return -1;
+                // Exit status is unavailable when the process is not reapable by waitpid().
+                return 0;
             }
 
             std::this_thread::sleep_for(std::chrono::milliseconds(kPollIntervalMs));
@@ -123,6 +168,19 @@ protected:
         return false;
     }
 
+    bool WaitForATFFileSize(size_t min_size, int timeout_seconds = kMaxWaitSeconds) {
+        auto deadline = std::chrono::steady_clock::now() +
+                        std::chrono::seconds(timeout_seconds);
+
+        while (std::chrono::steady_clock::now() < deadline) {
+            if (GetATFFileSize() > min_size) {
+                return true;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(kPollIntervalMs));
+        }
+        return false;
+    }
+
     // Wait until event count reaches threshold
     bool WaitForEvents(uint64_t min_events, int timeout_seconds = kMaxWaitSeconds) {
         auto deadline = std::chrono::steady_clock::now() +
@@ -141,6 +199,10 @@ protected:
     // Get hook statistics
     TracerStats GetStats() {
         return frida_controller_get_stats(controller_);
+    }
+
+    bool FinalizeSession() {
+        return controller_ && frida_controller_stop_session(controller_) == 0;
     }
 
     // Count symbols in manifest.json
@@ -201,6 +263,8 @@ TEST_F(SwiftHooksTest, swift_module_default__then_hooks_more_than_exports) {
     int exit_code = WaitForProcessExit(10);
     ASSERT_GE(exit_code, 0) << "Process crashed or timed out";
 
+    ASSERT_TRUE(FinalizeSession()) << "Failed to finalize ATF session";
+
     // Wait for manifest to be written
     ASSERT_TRUE(WaitForManifest(5)) << "Manifest file not created";
 
@@ -239,7 +303,10 @@ TEST_F(SwiftHooksTest, runloop_program__then_atf_accumulates_events) {
     int exit_code = WaitForProcessExit(10);
     ASSERT_GE(exit_code, 0) << "Process crashed or timed out";
 
+    ASSERT_TRUE(FinalizeSession()) << "Failed to finalize ATF session";
+
     // Check ATF file has actual event data
+    ASSERT_TRUE(WaitForATFFileSize(200u, 5)) << "ATF file did not reach expected size";
     size_t atf_size = GetATFFileSize();
 
     // ATF header is ~160 bytes, actual events make it larger
@@ -308,6 +375,8 @@ TEST_F(SwiftHooksTest, ada_hook_swift_zero__then_uses_exports_only) {
     int exit_code = WaitForProcessExit(10);
     ASSERT_GE(exit_code, 0) << "Process crashed or timed out";
 
+    ASSERT_TRUE(FinalizeSession()) << "Failed to finalize ATF session";
+
     // Wait for manifest
     ASSERT_TRUE(WaitForManifest(5));
 
@@ -348,6 +417,8 @@ TEST_F(SwiftHooksTest, high_frequency_calls__then_no_crash) {
         << (exit_code < 0 ? " (signal)" : " (error)");
 
     // Verify ATF file integrity (has data)
+    ASSERT_TRUE(FinalizeSession()) << "Failed to finalize ATF session";
+    ASSERT_TRUE(WaitForATFFileSize(200u, 5)) << "ATF file did not reach expected size";
     size_t atf_size = GetATFFileSize();
     EXPECT_GT(atf_size, 200u) << "ATF file too small, possible data loss";
 }
@@ -461,6 +532,8 @@ TEST_F(SwiftHooksTest, xcode_swiftui_app__then_no_crash_under_hooks) {
     EXPECT_TRUE(clean_exit) << "SwiftUI app crashed under instrumentation";
 
     // Verify ATF has actual data
+    ASSERT_TRUE(FinalizeSession()) << "Failed to finalize ATF session";
+    ASSERT_TRUE(WaitForATFFileSize(200u, 5)) << "ATF file did not reach expected size";
     size_t atf_size = GetATFFileSize();
     EXPECT_GT(atf_size, 200u) << "ATF file too small from Xcode-built app";
 }
